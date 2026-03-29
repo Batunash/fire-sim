@@ -187,6 +187,7 @@ function updateFirstPersonMovement(delta) {
 
   const velocity = new THREE.Vector3();
 
+  // Hareket edilmiyorsa sarsıntı driftini önlemek için pozisyonu koru
   if (moveState.forward) {
     velocity.add(direction);
   }
@@ -1790,6 +1791,12 @@ function startEarthquake() {
   isEarthquakeActive = true;
   shakingIntensity = 0.15;
 
+  // Ses: Siren başlat
+  if (window.alarmAudio) {
+    window.alarmAudio.loop = true;
+    window.alarmAudio.play().catch(e => console.warn("Ses çalınamadı:", e));
+  }
+
   // Elektrik kesintisi - Kaçak akım rölesi devreye giriyor
   cutElectricity();
 
@@ -1841,38 +1848,72 @@ function activateAlarm() {
   console.log("Alarm basıldı but deprem is automated");
 }
 
+let postEarthquakeMode = false;
+
 function updateEarthquakeStage() {
-  if (!isEarthquakeActive) return;
+  if (scenarioEnded || !timerStarted) return;
 
   const elapsedTime = (Date.now() - startTime) / 1000;
 
-  // Güvenli alan kontrolü
-  checkSafeZone();
+  // FAZ 1: SARSINTI (0 - 15 saniye)
+  if (elapsedTime <= 15) {
+    isEarthquakeActive = true;
+    shakingIntensity = 0.15;
+    checkSafeZone();
+  } 
+  // FAZ 2: TAHLİYE (15 saniye sonrası)
+  else {
+    if (isEarthquakeActive) {
+      isEarthquakeActive = false;
+      shakingIntensity = 0;
+      postEarthquakeMode = true;
+      
+      // Siren sesini durdur (sarsıntı bitti)
+      if (window.alarmAudio) {
+        window.alarmAudio.pause();
+      }
 
-  // 15 saniye sonra deprem biter
-  if (elapsedTime > 15) {
-    isEarthquakeActive = false;
-    shakingIntensity = 0;
-    
-    // Değerlendirme
-    if (inSafeZoneTime > 10) {
-       // Başarılı: 10 saniyeden fazla güvende kaldı
-       userScore += 100;
+      showMessage("✅ Sarsıntı bitti! Hızlıca binayı terk edin! Kapıya (arkaya) yönelin!", 6000);
+      
+      // Sarsıntı anındaki performans değerlendirmesi
+      if (inSafeZoneTime < 10) {
+        // Sarsıntı sırasında yeterince güvende kalmadıysa başarısız kabul edilebilir veya puanı kırılır
+        // Biz burada sarsıntı biter bitmez "yaralandın" demiyoruz, ama kaçış süresi tanıyoruz.
+        console.log("Sarsıntı sırasında yeterince güvende kalınmadı.");
+      }
+    }
+
+    // Kapıya ulaşma kontrolü (Z > 2.5 kapı bölgesi)
+    if (camera.position.z > 2.5) {
+       // BAŞARILI TAHLİYE
+       if (inSafeZoneTime > 10) {
+         userScore += 100;
+         decisionLog.push({
+           time: Date.now() - startTime,
+           action: "escaped_success",
+           description: "Sarsıntıyı güvenli alanda atlatıp başarıyla tahliye oldunuz.",
+         });
+         endScenario("success");
+       } else {
+         // Sarsıntıda masaya girmedi ama tahliye oldu (Kısmi başarı/Yaralı)
+         userScore += 40;
+         decisionLog.push({
+           time: Date.now() - startTime,
+           action: "escaped_injured",
+           description: "Tahliye oldunuz ama sarsıntı sırasında yaralandınız (masanın altında kalmadınız).",
+         });
+         endScenario("failed_not_safe");
+       }
+    }
+
+    // Çok geç kaldıysa (tahliye için toplam 30 saniye)
+    if (elapsedTime > 35) {
        decisionLog.push({
          time: Date.now() - startTime,
-         action: "survived",
-         description: "Sarsıntıyı güvenli alanda atlattınız",
+         action: "timed_out",
+         description: "Tahliye için verilen süre doldu!",
        });
-       endScenario("success");
-    } else {
-       // Başarısız: dışarıdaydı
-       userScore += 20;
-       decisionLog.push({
-         time: Date.now() - startTime,
-         action: "danger",
-         description: "Güvenli alana zamanında girmediniz",
-       });
-       endScenario("failed_not_safe");
+       endScenario("failed_too_late");
     }
   }
 }
@@ -2018,10 +2059,6 @@ function endScenario(result) {
   scoreText.textContent = `Toplam Puan: ${userScore} / 200`;
   timeText.textContent = `Toplam Süre: ${totalTime} saniye`;
 
-  if (alarmResponseTime > 0) {
-    timeText.textContent += ` (Alarm: ${alarmResponseTime.toFixed(1)}s)`;
-  }
-
   // Karar geçmişini göster
   let logHTML = "<h4>Karar Geçmişi:</h4><ul>";
   decisionLog.forEach((log) => {
@@ -2064,6 +2101,9 @@ window.stopAlarmSound = function () {
 };
 
 function initAudio() {
+  // Siren sesini hazırla
+  window.alarmAudio = new Audio('./assets/audio/alarm.mp3');
+  window.alarmAudio.volume = 0.5;
   console.log("✓ Alarm ses sistemi hazır");
 }
 
@@ -2213,33 +2253,39 @@ function animate() {
 
   // WASD ile birinci şahıs hareket güncellemesi
   updateFirstPersonMovement(deltaTime);
-
   updateInteraction();
 
-  // Kamera Sarsıntısı (Deprem)
+  // Sarsıntı verilerini hazırla (Sadece rendersırasında geçici offset için)
+  let shakeOffset = new THREE.Vector3(0, 0, 0);
   if (isEarthquakeActive) {
-      const shakeX = (Math.random() - 0.5) * shakingIntensity;
-      const shakeY = (Math.random() - 0.5) * shakingIntensity * 0.5;
-      const shakeZ = (Math.random() - 0.5) * shakingIntensity;
-      camera.position.x += shakeX;
-      // Y çömelme mekanizmasını bozmaması için kısıtlı sarsıntı
-      camera.position.y = Math.max(CROUCH_HEIGHT - 0.1, camera.position.y + shakeY);
-      camera.position.z += shakeZ;
-      
-      // Objelerin Düşmesi (Gerçekçi düşüş fiziği)
+      shakeOffset.x = (Math.random() - 0.5) * shakingIntensity;
+      shakeOffset.y = (Math.random() - 0.5) * shakingIntensity * 0.5;
+      shakeOffset.z = (Math.random() - 0.5) * shakingIntensity;
+  }
+
+  // Sarsıntıyı uygula (GEÇİCİ)
+  camera.position.add(shakeOffset);
+
+  if (composer) {
+    composer.render();
+  } else {
+    renderer.render(scene, camera);
+  }
+
+  // Sarsıntıyı geri al (Kalıcı drifti önlemek için kritik)
+  camera.position.sub(shakeOffset);
+
+  // Objelerin Düşmesi (Gerçekçi düşüş fiziği)
+  if (isEarthquakeActive) {
       const gravity = 9.8;
       fallingObjects.forEach((obj) => {
           if (!obj || obj.userData._fallen) return;
-          // Yerçekimi uygulay - hızı artır
           obj.userData._velocityY = (obj.userData._velocityY || 0) - gravity * deltaTime;
           obj.position.y += obj.userData._velocityY * deltaTime;
-          // Yatay hareket
           obj.position.x += (obj.userData._velocityX || 0) * deltaTime;
           obj.position.z += (obj.userData._velocityZ || 0) * deltaTime;
-          // Dönürken düşüsün
           obj.rotation.x += deltaTime * 1.5;
           obj.rotation.z += deltaTime * 0.8;
-          // Zemine çarptığında dur
           if (obj.position.y <= 0.05) {
              obj.position.y = 0.05;
              obj.userData._velocityY = 0;
@@ -2250,34 +2296,23 @@ function animate() {
       });
   }
 
-  if (composer) {
-    composer.render();
-  } else {
-    renderer.render(scene, camera);
-  }
-
-  // Animasyonu güncelle (çöp şeyler vs varsa)
-  if (isEarthquakeActive) {
-    updateEarthquakeStage();
-  }
+  // Senaryo mantığını güncelle
+  updateEarthquakeStage();
   
-  // Durum güncelleme
+  // Durum ve Zamanlayıcı UI güncelleme
   if (isEarthquakeActive || timerStarted) {
     updateStatus();
-  }
 
-  // Zamanlayıcıyı göster (sadece senaryo devam ederken)
-  if (timerStarted && !scenarioEnded) {
-    const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
-    const timerDiv = document.getElementById("timer");
-    if (timerDiv) {
-      timerDiv.textContent = `⏱️ Geçen Süre: ${elapsedTime}s`;
-
-      // Renk değişimi - süreye göre
-      if (elapsedTime < 15) {
-        timerDiv.style.color = "#ff4444"; // Deprem süresince kırmızı
-      } else {
-        timerDiv.style.color = "#00ff00"; // Bittiğinde yeşil
+    if (timerStarted && !scenarioEnded) {
+      const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
+      const timerDiv = document.getElementById("timer");
+      if (timerDiv) {
+        timerDiv.textContent = `⏱️ Geçen Süre: ${elapsedTime}s`;
+        if (elapsedTime < 15) {
+          timerDiv.style.color = "#ff4444";
+        } else {
+          timerDiv.style.color = "#00ff00";
+        }
       }
     }
   }
