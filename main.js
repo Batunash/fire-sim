@@ -16,8 +16,7 @@ import { UnrealBloomPass } from "three/examples/jsm/postprocessing/UnrealBloomPa
 import Stats from "three/examples/jsm/libs/stats.module.js";
 import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
 
-// Particle System File
-import { getParticleSystem } from "./getParticleSystem.js";
+
 
 let camera, scene, renderer, composer, controls, model;
 let modelCircle, baseCircle;
@@ -30,13 +29,13 @@ window.isDoorOpen = false; // Kapı durumu
 window.doorGroup = null; // Kapı objesi referansı
 let handsGroup; // Procedural hands group
 
-let mixerSmoke, mixerFire, mixerFE;
-let modelSmoke, modelFire, modelFE, modelWood;
+let mixerFE;
+let modelWood;
 const clock = new THREE.Clock();
 let deltaTime;
 
-// Göz hizası sabit yüksekliği (metre cinsinden)
 const EYE_HEIGHT = 1.6;
+const CROUCH_HEIGHT = 0.75; // Masanın altına girebilecek kadar alçak
 
 // ==================== FPS HAREKET KONTROLLERİ (WASD) ====================
 // Klavye ile birinci şahıs (kişi POV) hareketi için değişkenler
@@ -45,6 +44,7 @@ const moveState = {
   backward: false,
   left: false,
   right: false,
+  crouching: false,
 };
 
 // Hareket hızı (metre/saniye)
@@ -64,6 +64,10 @@ function onKeyDown(event) {
     case "KeyD":
       moveState.right = true;
       break;
+    case "KeyC": // Çömelme toggle
+      if (event.repeat) return;
+      moveState.crouching = !moveState.crouching;
+      break;
     case "KeyE":
       if (event.repeat) return;
       if (currentInteractable) {
@@ -75,20 +79,7 @@ function onKeyDown(event) {
 
 // Etkileşim işleyicisi
 function handleInteraction(object) {
-  if (object.name === "alarmBox") {
-    activateAlarm();
-  } else if (
-    object.name === "ABC" ||
-    object.name === "CO2" ||
-    object.name === "WATER"
-  ) {
-    selectExtinguisher(object.name);
-  } else if (object.userData && object.userData.isFireHandle) {
-    toggleFireExtinguisher();
-  } else if ((object.name === "trashcan" || object.name === "fireHitbox" || object.name === "heater") && selectedExtinguisher) {
-    // Yangın söndürme eylemi
-    toggleFireExtinguisher();
-  } else if (object.name === "Door") {
+  if (object.name === "Door") {
     // Kapı aç/kapat
     toggleDoor();
   }
@@ -169,7 +160,11 @@ function updateFirstPersonMovement(delta) {
   // Sadece kilitliyse (senaryo başladığında kilitleniyor) harekete izin ver
   if (!controls.isLocked) return;
 
-  // Hiçbir tuşa basılmıyorsa çık
+  // Her frame'de çömelme yüksekliğini güncelle (hareket olmasa da)
+  const targetHeight = moveState.crouching ? CROUCH_HEIGHT : EYE_HEIGHT;
+  camera.position.y += (targetHeight - camera.position.y) * Math.min(delta * 10, 1);
+
+  // Hiçbir hareket tuşuna basılmıyorsa buradan çık
   if (
     !moveState.forward &&
     !moveState.backward &&
@@ -214,9 +209,6 @@ function updateFirstPersonMovement(delta) {
 
   // Kamerayı oda içinde tut
   clampInsideRoom(camera.position);
-
-  // Yüksekliği sabitle (göz hizası sabit kalsın)
-  camera.position.y = EYE_HEIGHT;
 }
 
 // Ses sistemı
@@ -386,22 +378,16 @@ async function loadAllRealisticModels() {
   return loadedModels;
 }
 
-let fireEffect, smokeEffect, feEffect;
-let velocityRotation = new THREE.Vector3();
-let FEAnimations;
-
-let fireEnable = false; // Yangın başlangıçta kapalı
-let smokeEnable = false;
-let feEnable = false;
+let isEarthquakeActive = false;
+let earthquakeTimer = 0;
+let shakingIntensity = 0; // Sarsıntı şiddeti
+let safeZoneRadius = 1.0; 
+let inSafeZoneTime = 0;
+let isUnderDesk = false;
 let alarmActive = false;
-let fireIntensity = 1.0; // Yangın şiddeti (0-1)
-let fireStage = "none"; // 'none', 'beginning', 'developed', 'extinguished'
-let electricityOn = true; // Elektrik durumu
-let selectedExtinguisher = null; // 'ABC', 'CO2', 'water'
 
 // Zamanlama ve puanlama
 let timerStarted = false;
-let alarmResponseTime = 0;
 let startTime = 0;
 let userScore = 0;
 let decisionLog = [];
@@ -409,62 +395,8 @@ let decisionLog = [];
 // Senaryo bitti mi (başarı veya başarısızlık)?
 let scenarioEnded = false;
 
-// Yangın söndürme mesafesi ve zamanlayıcı
-let nearFireStartTime = 0;
-let isNearFire = false;
-const requiredDistance = 2.5; // Alevin yakınında sayılacak mesafe (metre)
-const requiredTime = 3000; // Yakında durma süresi (3 saniye - milisaniye)
-
-// Parçacık yoğunluğu (performans için düşürüldü)
-const fireRateValue = 18;
-const smokeRateValue = 6;
-const feRateValue = 140; // 1000'den düşürüldü - FPS optimizasyonu
-
-let fireRate = 0;
-let smokeRate = 0;
-let feRate = feRateValue;
-
-const cubeGeometry = new THREE.BoxGeometry();
-const cubeMaterial = new THREE.MeshStandardMaterial({ color: 0x000000 });
-
-// Fire Particles - Masanın altında, uzatma kablosundan başlıyor
-const fireSpawn = new THREE.Mesh(cubeGeometry, cubeMaterial);
-fireSpawn.position.set(0.7, 0.25, -1.5); // Masanın altında - heater pozisyonu
-fireSpawn.scale.set(0.1, 0.1, 0.1);
-
-const fireSpeed = 0.5;
-const fireRotationSpeed = 10;
-const fireVelocity = new THREE.Vector3(0, 0.5, 0); // Yukarı doğru - masaya yayılıyor
-
-// Smoke Particles
-const smokeSpawn = new THREE.Mesh(cubeGeometry, cubeMaterial);
-smokeSpawn.position.set(0.7, 0.5, -1.5); // Ateşin üzerinde - masanın altında
-smokeSpawn.scale.set(0.1, 0.1, 0.1);
-
-// İkinci yangın kaynağı - bilgisayar (yangın büyüdüğünde)
-let computerFireSpawn = new THREE.Mesh(cubeGeometry, cubeMaterial);
-computerFireSpawn.position.set(0, 1.1, -1.8); // Monitör pozisyonu - masanın üzerinde
-computerFireSpawn.scale.set(0.1, 0.1, 0.1);
-computerFireSpawn.visible = false;
-
-let computerFireEffect = null;
-let computerFireActive = false;
-
-const smokeSpeed = 0.5;
-const smokeRotationSpeed = 10;
-const smokeVelocity = new THREE.Vector3(0, 0.3, 0);
-
-// Fire Extinguisher Particles
-const feSpawn = new THREE.Mesh(cubeGeometry, cubeMaterial);
-feSpawn.position.set(0.2, 0, 0);
-feSpawn.scale.set(0.1, 0.1, 0.1);
-
-const feSpeed = 0.5;
-const feRotationSpeed = 10;
-const feVelocity = new THREE.Vector3(0, 1, 0);
-const FeRotation = new THREE.Vector3(0.6, 0, 0);
-
-let feRoot = [];
+// Animasyon için objeler
+let fallingObjects = [];
 
 // -------------------- GUI --------------------
 
@@ -487,7 +419,6 @@ initApp();
 async function initApp() {
   await init();
   createProceduralHands();
-  createFireHitbox();
   animate();
 }
 
@@ -510,138 +441,10 @@ async function init() {
 
   scene = new THREE.Scene();
 
-  // -------------------- Particles --------------------
-
-  fireEffect = getParticleSystem({
-    camera,
-    emitter: fireSpawn,
-    parent: scene,
-    rate: fireRate,
-    texture: "./assets/img/fire.png",
-    radius: 0.15, // Daha dar alan - daha az parçacık ekranı kaplar
-    maxLife: 1.4, // Daha kısa yaşam süresi
-    maxSize: 3.5, // Biraz daha küçük partiküller
-    maxVelocity: fireVelocity,
-    colorA: new THREE.Color(0xffff00), // Sarı
-    colorB: new THREE.Color(0xff4400), // Turuncu-kırmızı
-    alphaMax: 1.0,
-  });
-
-  smokeEffect = getParticleSystem({
-    camera,
-    emitter: smokeSpawn,
-    parent: scene,
-    rate: smokeRate,
-    texture: "./assets/img/smoke.png",
-    radius: 0.18, // Daha dar duman alanı
-    maxLife: 2.5, // Daha kısa yaşam süresi
-    maxSize: 4, // Daha küçük duman partikülleri
-    maxVelocity: smokeVelocity,
-    colorA: new THREE.Color(0x333333), // Koyu gri
-    colorB: new THREE.Color(0x999999), // Açık gri
-    alphaMax: 0.8,
-  });
-
-  feEffect = getParticleSystem({
-    camera,
-    emitter: feSpawn,
-    parent: scene,
-    rate: feRate,
-    texture: "./assets/img/smoke.png",
-    radius: 0.05,
-    maxLife: 0.8,
-    maxSize: 3, // Daha büyük - yakından görünsün
-    maxVelocity: feVelocity,
-    colorA: new THREE.Color(0xffffff),
-    colorB: new THREE.Color(0xcccccc),
-    alphaMax: 0.8,
-  });
-
-  // Bilgisayar yangın efekti (yangın büyüdüğünde)
-  computerFireEffect = getParticleSystem({
-    camera,
-    emitter: computerFireSpawn,
-    parent: scene,
-    rate: 0, // Başlangıçta kapalı
-    texture: "./assets/img/fire.png",
-    radius: 0.11,
-    maxLife: 1.0,
-    maxSize: 1.4,
-    maxVelocity: new THREE.Vector3(0, 0.3, 0),
-    colorA: new THREE.Color(0xffff00), // Sarı
-    colorB: new THREE.Color(0xff4400), // Turuncu-kırmızı
-    alphaMax: 1.0,
-  });
-
   // -------------------- Oda Oluştur --------------------
 
   await createRoom();
-
-  // -------------------- Import Assets --------------------
-
-  // FE - Yangın söndürücü pozisyonu
-  loader.load(fileFE, async function (gltf) {
-    modelFE = gltf.scene;
-    // modelFE.scale.set( .1,.1,.1 );
-    // First person view için yangın söndürücüyü kameraya bağla
-    // Ekranın sağ alt köşesinde görünecek şekilde
-    modelFE.position.set(0.35, -0.35, -0.5); // Kameraya göre: sağda, aşağıda, önde
-    modelFE.rotation.set(0.1, Math.PI, 0); // Boruyu ileriye çevir (180 derece döndür)
-    modelFE.scale.set(0.7, 0.7, 0.7); // Biraz küçült (kameraya çok yakın)
-
-    modelFE.traverse((child) => {
-      if (child.isMesh) {
-        child.castShadow = false; // FPS view'da gölge istemeyiz
-        child.receiveShadow = false;
-      }
-      if (child.name === "Fire_Extinguisher_Base") {
-        feRoot[0] = child;
-        console.log("feRoot[0] : ", feRoot[0]);
-      }
-      if (child.name === "FE_Origin") {
-        feRoot[1] = child;
-        // FPS view için rotasyonu ayarla - boruyu ileriye çevir
-        feRoot[1].rotation.set(FeRotation.x, FeRotation.y, FeRotation.z);
-        console.log("feRoot[1] : ", feRoot[1]);
-      }
-    });
-
-    await renderer.compileAsync(modelFE, camera, scene);
-
-    mixerFE = new AnimationMixer(modelFE);
-    mixerFE.loop = false;
-    FEAnimations = gltf.animations;
-
-    // Yangın söndürücüyü kameraya ekle (FPS view)
-    camera.add(modelFE);
-    modelFE.visible = false; // Başlangıçta gizli (tüp alınana kadar)
-    scene.add(camera); // Kamerayı da sahneye ekle
-    console.log("modelFE FPS modunda kameraya eklendi");
-    console.log(gltf.animations);
-    console.log("mixerFE : ", mixerFE);
-  });
-
-  // Circle - KALDIRILDI (zemindeki siyah alan istenmiyor)
-  // loader.load(fileBase, async function (gltf) {
-  //   modelCircle = gltf.scene;
-  //   modelCircle.traverse((child) => {
-  //     if (child.isMesh) {
-  //       child.castShadow = false;
-  //       child.receiveShadow = true;
-  //       child.material.renderOrder = 0;
-  //       child.material.depthWrite = true;
-  //       child.material.transparent = false;
-  //       child.material.color = new THREE.Color(
-  //         guiObject.color.r,
-  //         guiObject.color.g,
-  //         guiObject.color.b
-  //       );
-  //       baseCircle = child;
-  //     }
-  //   });
-  //   await renderer.compileAsync(modelCircle, camera, scene);
-  //   scene.add(modelCircle);
-  // });
+  scene.add(camera); // Kamerayı sahneye ekle
 
   hdriLoader.load("Env.hdr", function (texture) {
     if (!ENV_REFLECTION_ENABLED) return;
@@ -826,25 +629,9 @@ function onWindowResize() {
   renderer.setSize(window.innerWidth, window.innerHeight);
 
   composer.setSize(window.innerWidth, window.innerHeight); // Update composer size
-
-  render();
 }
 
-function playFeAnimations() {
-  FEAnimations.forEach((clip3) => {
-    console.log("clip3: ", clip3);
-    clip3.loop = false;
-    mixerFE.clipAction(clip3).play();
-  });
-}
-
-function stopFeAnimations() {
-  FEAnimations.forEach((clip3) => {
-    console.log("clip3: ", clip3);
-    clip3.loop = false;
-    mixerFE.clipAction(clip3).stop();
-  });
-}
+// FE animasyon fonksiyonları depremde kullanılmıyor, temizlendi
 
 // ----------------- Oda Fonksiyonu ------------------------
 
@@ -1230,31 +1017,19 @@ async function createRoom() {
     console.log("✓ Bitki eklendi");
   }
 
-  // Bilgisayar referansını sakla (yangın yayılması için)
-  window.computerEquipment = {
-    monitor: monitor || loadedModels.monitor,
-    screen: screen,
-    keyboard: keyboard || loadedModels.keyboard,
-    mouse: computerMouse || loadedModels.mouse,
-  };
-
-  // Yangın söndürücüler - 3 tip
-  createExtinguishers();
-
-  // Elektrik panosu
-  if (loadedModels.electricalPanel) {
-    room.add(loadedModels.electricalPanel);
-    window.electricalPanel = loadedModels.electricalPanel;
-    console.log("✓ Gerçekçi elektrik panosu eklendi");
-  } else {
-    createElectricalPanel();
+  // Düşecek objelerin başlangıç pozisyonlarını sakla (deprem sırasında kullanılacak)
+  function registerFallingObject(obj) {
+    if (!obj) return;
+    obj.userData._startY = obj.position.y; // Başlangıç yüksekliğini sakla
+    obj.userData._velocityY = 0;           // Düşüş hızı
+    obj.userData._velocityX = (Math.random() - 0.5) * 0.5; // Hafif yatay itme
+    obj.userData._velocityZ = (Math.random() - 0.5) * 0.5;
+    obj.userData._fallen = false;
+    fallingObjects.push(obj);
   }
-
-  // Yangın dolabı (Kod ile oluşturulmuş gerçekçi model)
-  createFireHoseCabinet();
-
-  // Yanan nesne etiketi
-  window.burningObject = heater;
+  registerFallingObject(monitor || loadedModels.monitor);
+  registerFallingObject(keyboard || loadedModels.keyboard);
+  registerFallingObject(loadedModels.plant);
 
   scene.add(room);
 }
@@ -2006,33 +1781,30 @@ function createFireHoseCabinet() {
 
 // ----------------- Yangın Kontrol Fonksiyonları ------------------------
 
-function startFire() {
+function startEarthquake() {
   if (!timerStarted) {
     timerStarted = true;
     startTime = Date.now();
   }
 
-  fireEnable = true;
-  smokeEnable = true;
-  fireIntensity = 1.0;
-  fireStage = "beginning";
+  isEarthquakeActive = true;
+  shakingIntensity = 0.15;
 
   // Elektrik kesintisi - Kaçak akım rölesi devreye giriyor
   cutElectricity();
 
   decisionLog.push({
     time: Date.now() - startTime,
-    action: "fire_started",
-    description: "Isıtıcı yandı, yangın başladı!",
+    action: "earthquake_started",
+    description: "Sarsıntı başladı!",
   });
 
-  console.log("⚡ Elektrik kesildi! Yangın başladı!");
+  console.log("⚡ Elektrik kesildi! Deprem başladı!");
+  updateStatus();
 }
 
 // Elektriği kes
 function cutElectricity() {
-  electricityOn = false;
-
   // Normal ışıkları kapat
   if (window.mainLights) {
     window.mainLights.visible = false;
@@ -2065,345 +1837,73 @@ function cutElectricity() {
 }
 
 function activateAlarm() {
-  if (!alarmActive) {
-    const responseTime = Date.now() - startTime;
-    alarmResponseTime = responseTime / 1000; // saniye cinsinden
-
-    alarmActive = true;
-
-    decisionLog.push({
-      time: responseTime,
-      action: "alarm_activated",
-      description: `Alarm ${alarmResponseTime.toFixed(1)} saniyede basıldı`,
-    });
-
-    // Alarm süresine göre puan
-    if (alarmResponseTime < 5) {
-      userScore += 30;
-      console.log("⭐ Mükemmel! Alarm hızla basıldı!");
-    } else if (alarmResponseTime < 10) {
-      userScore += 20;
-      console.log("✓ İyi! Alarm basıldı.");
-    } else {
-      userScore += 10;
-      console.log("⚠️ Geç kaldınız! Alarm gecikmeli basıldı.");
-    }
-
-    // UI güncelleme
-    const alarmBtn = document.getElementById("alarmButton");
-    if (alarmBtn) {
-      alarmBtn.textContent = "ALARM AKTİF! 🚨";
-      alarmBtn.style.backgroundColor = "#ff0000";
-      alarmBtn.disabled = true;
-    }
-
-    // Durum güncelleme
-    updateStatus();
-
-    // Alarm sesini doğrudan çal (kullanıcı etkileşimi sonrası)
-    try {
-      if (!alarmAudio) {
-        alarmAudio = new Audio("assets/audio/alarm.mp3");
-        alarmAudio.loop = true;
-        alarmAudio.volume = 0.7;
-      }
-      alarmAudio.currentTime = 0;
-      alarmAudio
-        .play()
-        .then(() => {
-          console.log("🔊 Alarm sesi çalıyor!");
-        })
-        .catch((e) => {
-          console.error("Ses çalma hatası:", e);
-        });
-    } catch (e) {
-      console.error("Alarm ses hatası:", e);
-    }
-  }
+  // Empty or simplified, alarm functionality can be retained or disabled
+  console.log("Alarm basıldı but deprem is automated");
 }
 
-// Yangın söndürücü seç
-function selectExtinguisher(type) {
-  if (!fireEnable) {
-    showMessage("⚠️ Henüz yangın yok! Önce yangın başlamalı.");
-    return;
-  }
-
-  if (selectedExtinguisher) {
-    showMessage("Zaten bir yangın söndürücü seçtiniz!");
-    return;
-  }
-
-  selectedExtinguisher = type;
-
-  decisionLog.push({
-    time: Date.now() - startTime,
-    action: "extinguisher_selected",
-    type: type,
-    description: `${type} tipi yangın söndürücü seçildi`,
-  });
-
-  // Seçime göre puan ver
-  if (type === "ABC") {
-    userScore += 40;
-    feEnable = false; // Seçilince hemen sıkmaya başlama
-    showMessage(
-      "✅ Mükemmel! ABC Kuru Kimyevi Toz elektrik yangınları için doğru seçim!",
-      2000
-    );
-    console.log("✓ ABC söndürücü seçildi - DOĞRU!");
-  } else if (type === "CO2") {
-    userScore += 35;
-    feEnable = false; // Seçilince hemen sıkmaya başlama
-    showMessage(
-      "✅ Doğru! CO2 söndürücü elektrik yangınları için uygun. Dikkat: Yakın mesafeden kullanın!",
-      2000
-    );
-    console.log("✓ CO2 söndürücü seçildi - DOĞRU (ama dikkatli kullan)");
-  } else if (type === "WATER") {
-    userScore -= 50;
-    showMessage(
-      "❌ YANLIŞ! Su ile elektrik yangını söndürülmez! ELEKTRİK ÇARPMA RİSKİ! Hasar gördünüz!"
-    );
-    console.log("✗ Su söndürücü seçildi - YANLIŞ! Elektrik çarpması riski!");
-
-    // Yanlış seçimde oyun biter
-    setTimeout(() => {
-      endScenario("failed_wrong_extinguisher");
-    }, 3000);
-    return;
-  }
-
-  updateStatus();
-}
-
-function extinguishFire() {
-  // Yangın söndürücü aktif olduğunda mesafe kontrolü yap
-  if (feEnable && fireIntensity > 0) {
-    // Yangın aşamasını kontrol et
-    if (fireStage === "developed") {
-      // Gelişmiş aşamada müdahale - riskli!
-      showMessage("⚠️ Yangın çok büyüdü! Risk alıyorsunuz! Odayı terk edin!");
-      userScore -= 30;
-
-      decisionLog.push({
-        time: Date.now() - startTime,
-        action: "dangerous_intervention",
-        description: "Gelişmiş aşamada yangına müdahale - riskli karar!",
-      });
-
-      setTimeout(() => {
-        endScenario("failed_late_intervention");
-      }, 5000);
-      return;
-    }
-
-    // Kamera ile yangın arasındaki mesafeyi kontrol et
-    const firePosition = new THREE.Vector3(0.4, 0.4, -1.5); // Yangın pozisyonu - masanın altında
-    const cameraPosition = camera.position.clone();
-    const distance = cameraPosition.distanceTo(firePosition);
-
-    // Alevin yakınında mı kontrolü
-    if (distance <= requiredDistance) {
-      if (!isNearFire) {
-        // İlk kez yakına geldi
-        isNearFire = true;
-        nearFireStartTime = Date.now();
-        showMessage(
-          `🧯 Yangına yakınsınız! ${requiredTime / 1000} saniye tutun...`
-        );
-        console.log(`Yangına yaklaşıldı! Mesafe: ${distance.toFixed(2)}m`);
-      } else {
-        // Yakında duruyor - süreyi kontrol et
-        const timeNearFire = Date.now() - nearFireStartTime;
-        const remainingTime = ((requiredTime - timeNearFire) / 1000).toFixed(1);
-
-        if (timeNearFire < requiredTime) {
-          // Hala bekleniyor
-          if (Math.floor(timeNearFire / 500) % 2 === 0) {
-            // Her 0.5 saniyede bir güncelle
-            updateStatus();
-            const statusDiv = document.getElementById("fireStatus");
-            if (statusDiv) {
-              statusDiv.textContent = `🧯 Yangın söndürülüyor... ${remainingTime}s`;
-              statusDiv.style.color = "#ffaa00";
-            }
-          }
-        } else {
-          // 3 saniye doldu - yangını söndür!
-          completeExtinguish();
-        }
-      }
-    } else {
-      // Yangından uzaklaştı
-      if (isNearFire) {
-        isNearFire = false;
-        nearFireStartTime = 0;
-        showMessage("⚠️ Yangından çok uzaksınız! Daha yakına gidin.");
-        console.log(`Yangından uzaklaşıldı! Mesafe: ${distance.toFixed(2)}m`);
-      }
-    }
-
-    // CO2 kullanımında özel uyarı
-    if (selectedExtinguisher === "CO2" && fireIntensity > 0.5) {
-      if (Math.random() < 0.01) {
-        // Ara sıra uyar
-        showMessage(
-          "⚠️ CO2 ile uzun süreli kullanımda ortamda oksijen azalır!"
-        );
-      }
-    }
-  } else {
-    // Yangın söndürücü kapalıysa zamanlayıcıyı sıfırla
-    if (isNearFire) {
-      isNearFire = false;
-      nearFireStartTime = 0;
-    }
-  }
-}
-
-// Yangını tamamen söndür (3 saniye yakında durulduğunda)
-function completeExtinguish() {
-  fireIntensity = 0;
-  fireEnable = false;
-  smokeEnable = false;
-  fireStage = "extinguished";
-  isNearFire = false;
-  nearFireStartTime = 0;
-
-  // Başarı puanı
-  const totalTime = (Date.now() - startTime) / 1000;
-  if (totalTime < 30) {
-    userScore += 50;
-  } else if (totalTime < 60) {
-    userScore += 30;
-  } else {
-    userScore += 10;
-  }
-
-  // Alarm sesini durdur
-  if (window.stopAlarmSound) {
-    window.stopAlarmSound();
-  }
-
-  decisionLog.push({
-    time: Date.now() - startTime,
-    action: "fire_extinguished",
-    description: `Yangın ${totalTime.toFixed(1)} saniyede söndürüldü`,
-  });
-
-  showMessage("✅ Yangın başarıyla söndürüldü!");
-  console.log("✅ Yangın söndürüldü!");
-
-  // Senaryoyu başarıyla bitir
-  setTimeout(() => {
-    endScenario("success");
-  }, 2000);
-}
-
-// Yangın söndürücüyü aç/kapat (kola tıklandığında)
-function toggleFireExtinguisher() {
-  if (!selectedExtinguisher) {
-    showMessage("⚠️ Önce bir yangın söndürücü seçin!");
-    return;
-  }
-
-  feEnable = !feEnable;
-
-  if (feEnable) {
-    showMessage("🧯 Yangın söndürücü AKTİF! Yangına yaklaşın!");
-    console.log("✓ Yangın söndürücü aktif edildi");
-
-    // GUI'yi de güncelle
-    guiObject.feBoolean = true;
-
-    // Animasyonu oynat
-    if (FEAnimations && mixerFE) {
-      playFeAnimations();
-    }
-
-    decisionLog.push({
-      time: Date.now() - startTime,
-      action: "extinguisher_activated",
-      description: "Yangın söndürücü kolu basıldı",
-    });
-  } else {
-    showMessage("🛑 Yangın söndürücü KAPANDI");
-    console.log("Yangın söndürücü kapatıldı");
-
-    guiObject.feBoolean = false;
-
-    // Animasyonu durdur
-    if (FEAnimations && mixerFE) {
-      stopFeAnimations();
-    }
-  }
-
-  updateStatus();
-}
-
-// Yangın aşama güncelleme
-function updateFireStage() {
-  if (!fireEnable) return;
+function updateEarthquakeStage() {
+  if (!isEarthquakeActive) return;
 
   const elapsedTime = (Date.now() - startTime) / 1000;
 
-  // 20 saniye sonra yangın gelişmiş aşamaya geçer ve bilgisayara yayılır
-  if (elapsedTime > 40 && fireStage === "beginning") {
-    fireStage = "developed";
-    fireIntensity = 1.5; // Yangın büyüyor!
+  // Güvenli alan kontrolü
+  checkSafeZone();
 
-    // Bilgisayar da yanmaya başlıyor
-    if (!computerFireActive) {
-      computerFireActive = true;
-      showMessage(
-        "🔥 DİKKAT! Yangın büyüdü ve BİLGİSAYARA YAYILDI! Gelişmiş aşama - müdahale çok riskli!"
-      );
-
-      // Monitör rengini değiştir (yangın hasarı)
-      if (window.computerEquipment && window.computerEquipment.monitor) {
-        window.computerEquipment.monitor.material.emissive = new THREE.Color(
-          0x331100
-        );
-        window.computerEquipment.monitor.material.emissiveIntensity = 0.5;
-
-        // Ekranı karart (yanıyor)
-        window.computerEquipment.screen.material.color = new THREE.Color(
-          0x111111
-        );
-        window.computerEquipment.screen.material.emissive = new THREE.Color(
-          0x220000
-        );
-        window.computerEquipment.screen.material.emissiveIntensity = 0.3;
-      }
-    }
-
-    decisionLog.push({
-      time: Date.now() - startTime,
-      action: "fire_developed",
-      description: "Yangın gelişmiş aşamaya geçti ve bilgisayara yayıldı",
-    });
-
-    // Eğer hala müdahale etmediyse...
-    if (!selectedExtinguisher && alarmActive) {
-      showMessage("⚠️ Çok geç kaldınız! Odayı terk edin ve kapıyı kapatın!");
-
-      setTimeout(() => {
-        if (fireStage === "developed" && !feEnable) {
-          endScenario("failed_too_late");
-        }
-      }, 5000);
+  // 15 saniye sonra deprem biter
+  if (elapsedTime > 15) {
+    isEarthquakeActive = false;
+    shakingIntensity = 0;
+    
+    // Değerlendirme
+    if (inSafeZoneTime > 10) {
+       // Başarılı: 10 saniyeden fazla güvende kaldı
+       userScore += 100;
+       decisionLog.push({
+         time: Date.now() - startTime,
+         action: "survived",
+         description: "Sarsıntıyı güvenli alanda atlattınız",
+       });
+       endScenario("success");
+    } else {
+       // Başarısız: dışarıdaydı
+       userScore += 20;
+       decisionLog.push({
+         time: Date.now() - startTime,
+         action: "danger",
+         description: "Güvenli alana zamanında girmediniz",
+       });
+       endScenario("failed_not_safe");
     }
   }
+}
 
-  // 40 saniye sonra yangın kontrol edilemez hale gelir
-  if (elapsedTime > 60 && fireStage === "developed") {
-    endScenario("failed_uncontrolled_fire");
-  }
+function checkSafeZone() {
+  // Masanın koordinatları X: 0, Z: -1.5
+  // Güvenli alan: masa yakınında olmak + çömeli durumda olmak (kamera y < 1.1)
+  const safeZoneX = 0;
+  const safeZoneZ = -1.5;
+  const crouchThreshold = 1.1; // Kullanıcı çömelmiş mi?
 
-  // Eğer yangın gelişmişse ve kullanıcı dışarı çıktıysa BAŞARI (Kaçış)
-  if (fireStage === "developed" && alarmActive && camera.position.z > 3.0) {
-    endScenario("success_escape");
+  const dist = Math.sqrt(Math.pow(camera.position.x - safeZoneX, 2) + Math.pow(camera.position.z - safeZoneZ, 2));
+  const isCrouched = camera.position.y <= crouchThreshold;
+  
+  if (dist < safeZoneRadius && isCrouched) {
+    if (!isUnderDesk) {
+      isUnderDesk = true;
+      showMessage("🛡️ Güvenli alandasınız! Sarsıntı bitene kadar çömeli bekleyin.");
+    }
+    inSafeZoneTime += deltaTime;
+  } else if (dist < safeZoneRadius && !isCrouched) {
+    // Masa yakınında ama ayaktalar
+    if (isUnderDesk) {
+      isUnderDesk = false;
+    }
+    showMessage("⚠️ Masanın altına girmek için [C] tuşuyla çömelin!", 1000);
+  } else {
+    if (isUnderDesk) {
+      isUnderDesk = false;
+      showMessage("⚠️ Güvenli alandan çıktınız!");
+    }
   }
 }
 
@@ -2422,42 +1922,28 @@ function showMessage(message, duration = 4000) {
 
 // Durum güncelle
 function updateStatus() {
-  const statusDiv = document.getElementById("fireStatus");
+  const statusDiv = document.getElementById("earthquakeStatus");
   if (!statusDiv) return;
 
-  if (!fireEnable) {
-    statusDiv.textContent = "Yangın Durumu: Beklemede";
+  if (!timerStarted) {
+    statusDiv.textContent = "Deprem Durumu: Beklemede";
     statusDiv.style.color = "#ffff00";
     statusDiv.style.animation = "none";
     return;
   }
 
-  if (fireStage === "extinguished") {
-    statusDiv.textContent = "✅ Yangın Başarıyla Söndürüldü!";
+  if (!isEarthquakeActive) {
+    statusDiv.textContent = "✅ Sarsıntı Sona Erdi!";
     statusDiv.style.color = "#00ff00";
     statusDiv.style.borderColor = "#00ff00";
     statusDiv.style.animation = "none";
-  } else if (fireStage === "developed") {
-    statusDiv.textContent = "🔥🔥 YANGIN GELİŞMİŞ AŞAMADA! Tehlikeli!";
-    statusDiv.style.color = "#ff0000";
-    statusDiv.style.borderColor = "#ff0000";
-    statusDiv.style.animation = "pulse 0.3s infinite";
-  } else if (selectedExtinguisher && feEnable) {
-    statusDiv.textContent = `🧯 ${selectedExtinguisher} ile yangın söndürülüyor... ${Math.round(
-      fireIntensity * 100
-    )}%`;
-    statusDiv.style.color = "#ffaa00";
-    statusDiv.style.borderColor = "#ffaa00";
-    statusDiv.style.animation = "none";
-  } else if (alarmActive) {
-    statusDiv.textContent =
-      "🚨 Alarm aktif! Yangın söndürücü seçin (ABC veya CO2)";
-    statusDiv.style.color = "#ff8800";
-    statusDiv.style.borderColor = "#ff8800";
+  } else if (isUnderDesk) {
+    statusDiv.textContent = "🛡️ Güvenli Alandasın. Bekle...";
+    statusDiv.style.color = "#00ff00";
+    statusDiv.style.borderColor = "#00ff00";
     statusDiv.style.animation = "none";
   } else {
-    statusDiv.textContent =
-      "⚡ YANGIN BAŞLADI! 🔥 Duvardaki ALARM butonuna tıklayın!";
+    statusDiv.textContent = "⚠️ SARSINTI! Hemen masanın altına gir!";
     statusDiv.style.color = "#ff4444";
     statusDiv.style.borderColor = "#ff4444";
     statusDiv.style.animation = "pulse 0.5s infinite";
@@ -2479,10 +1965,8 @@ function endScenario(result) {
     timerDiv.style.display = "none";
   }
 
-  // Tüm efektleri durdur
-  fireEnable = false;
-  smokeEnable = false;
-  feEnable = false;
+  isEarthquakeActive = false;
+  shakingIntensity = 0;
 
   if (window.stopAlarmSound) {
     window.stopAlarmSound();
@@ -2506,46 +1990,24 @@ function endScenario(result) {
 
   switch (result) {
     case "success":
-      title = "🎉 Tebrikler, Hayatımızı Kurtardınız!";
+      title = "🎉 Tebrikler, Hayatınızı Kurtardınız!";
       text =
-        "Yangını başarıyla söndürdünüz ve doğru kararlar aldınız. Herkes güvende!";
+        "Deprem sırasında masanın altına girerek 'Çök, Kapan, Tutun' pozisyonunu başarıyla uyguladınız. Herkes güvende!";
       color = "#00ff00";
       userScore += 50; // Bonus
       break;
 
-    case "success_escape":
-      title = "🏃‍♂️ BAŞARILI TAHLİYE!";
+    case "failed_not_safe":
+      title = "❌ BAŞARISIZ: Güvenli Alanda Değildiniz";
       text =
-        "Yangın kontrol edilemez boyuta ulaştığında odayı terk ederek doğru olanı yaptınız! Lütfen hemen 112'yi arayın!";
-      color = "#00ff00";
-      userScore += 30;
-      break;
-
-    case "failed_wrong_extinguisher":
-      title = "❌ BAŞARISIZ: Yanlış Ekipman Seçimi";
-      text =
-        "Su ile elektrik yangını söndürülmez! Elektrik çarpması riski nedeniyle yaralandınız.";
+        "Sarsıntı sırasında masanın altına girmediniz veya ayakta durdunuz. Yukarıdan düşen eşyalardan dolayı yaralandınız!";
       color = "#ff0000";
       break;
-
-    case "failed_late_intervention":
-      title = "❌ BAŞARISIZ: Geç Müdahale";
-      text =
-        "Yangın gelişmiş aşamadayken müdahale ettiniz. Alevlerin arasında kaldınız.";
-      color = "#ff0000";
-      break;
-
+      
     case "failed_too_late":
       title = "❌ BAŞARISIZ: Çok Geç Kaldınız";
       text =
-        "Karar vermede çok geç kaldınız. Yangın kontrol edilemez hale geldi.";
-      color = "#ff0000";
-      break;
-
-    case "failed_uncontrolled_fire":
-      title = "❌ BAŞARISIZ: Yangın Kontrolden Çıktı";
-      text =
-        "Yangın çok büyüdü ve artık kontrol edilemiyor. Bina tahliye edilmeli.";
+        "Güvenli alana geçmekte geciktiniz. Sarsıntı sizi hazırlıksız yakaladı.";
       color = "#ff0000";
       break;
   }
@@ -2754,143 +2216,81 @@ function animate() {
 
   updateInteraction();
 
+  // Kamera Sarsıntısı (Deprem)
+  if (isEarthquakeActive) {
+      const shakeX = (Math.random() - 0.5) * shakingIntensity;
+      const shakeY = (Math.random() - 0.5) * shakingIntensity * 0.5;
+      const shakeZ = (Math.random() - 0.5) * shakingIntensity;
+      camera.position.x += shakeX;
+      // Y çömelme mekanizmasını bozmaması için kısıtlı sarsıntı
+      camera.position.y = Math.max(CROUCH_HEIGHT - 0.1, camera.position.y + shakeY);
+      camera.position.z += shakeZ;
+      
+      // Objelerin Düşmesi (Gerçekçi düşüş fiziği)
+      const gravity = 9.8;
+      fallingObjects.forEach((obj) => {
+          if (!obj || obj.userData._fallen) return;
+          // Yerçekimi uygulay - hızı artır
+          obj.userData._velocityY = (obj.userData._velocityY || 0) - gravity * deltaTime;
+          obj.position.y += obj.userData._velocityY * deltaTime;
+          // Yatay hareket
+          obj.position.x += (obj.userData._velocityX || 0) * deltaTime;
+          obj.position.z += (obj.userData._velocityZ || 0) * deltaTime;
+          // Dönürken düşüsün
+          obj.rotation.x += deltaTime * 1.5;
+          obj.rotation.z += deltaTime * 0.8;
+          // Zemine çarptığında dur
+          if (obj.position.y <= 0.05) {
+             obj.position.y = 0.05;
+             obj.userData._velocityY = 0;
+             obj.userData._velocityX = 0;
+             obj.userData._velocityZ = 0;
+             obj.userData._fallen = true;
+          }
+      });
+  }
+
   if (composer) {
     composer.render();
   } else {
     renderer.render(scene, camera);
   }
 
-  if (mixerSmoke) {
-    mixerSmoke.update(deltaTime);
-    // console.log('mixerSmoke : ', mixerSmoke);
+  // Animasyonu güncelle (çöp şeyler vs varsa)
+  if (isEarthquakeActive) {
+    updateEarthquakeStage();
   }
-  if (mixerFire) {
-    // console.log('mixerFire : ', mixerFire);
-  }
-  if (mixerFE && modelFE) {
-    mixerFE.update(deltaTime);
-  }
-
-  // baseCircle kaldırıldı
-  // if (baseCircle)
-  //   modelCircle.children[0].material.color = new THREE.Color(
-  //     guiObject.color.r,
-  //     guiObject.color.g,
-  //     guiObject.color.b
-  //   );
-
-  if (!guiObject.pauseBoolean) {
-    if (fireRate > 0) fireEffect.update(deltaTime * fireSpeed, fireRate);
-    if (smokeRate > 0) smokeEffect.update(deltaTime * smokeSpeed, smokeRate);
-
-    // Bilgisayar yangını (gelişmiş aşamada)
-    if (computerFireActive && computerFireEffect && fireRateValue > 0) {
-      const computerFireRate = fireEnable ? fireRateValue * 0.5 : 0;
-      if (computerFireRate > 0) computerFireEffect.update(deltaTime * fireSpeed, computerFireRate);
-    }
-
-    // Yangın söndürücü partiküllerini sadece aktifken ve ihtiyaç olduğunda güncelle
-    if (feEnable && feRate > 0) {
-      feEffect.update(deltaTime * feSpeed, feRate);
-    }
-  }
-
-  // Yangın aşamasını güncelle
-  if (fireEnable) {
-    updateFireStage();
-  }
-
-  // Yangın yoğunluğuna göre partikül oranını ayarla
-  const intensityMultiplier = fireStage === "developed" ? 1.8 : 1.0;
-  fireRate =
-    fireEnable && guiObject.fireBoolean
-      ? fireRateValue * fireIntensity * intensityMultiplier
-      : 0;
-  smokeRate =
-    smokeEnable && guiObject.smokeBoolean
-      ? smokeRateValue * fireIntensity * intensityMultiplier
-      : 0;
-  feRate = feEnable && guiObject.feBoolean ? feRateValue : 0;
-
-  // Yangın söndürücü aktifse yangını söndür
-  if (feEnable && guiObject.feBoolean) {
-    extinguishFire();
-  }
-
+  
   // Durum güncelleme
-  if (fireEnable || alarmActive) {
+  if (isEarthquakeActive || timerStarted) {
     updateStatus();
   }
 
   // Zamanlayıcıyı göster (sadece senaryo devam ederken)
-  if (timerStarted && !scenarioEnded && fireStage !== "extinguished") {
+  if (timerStarted && !scenarioEnded) {
     const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
     const timerDiv = document.getElementById("timer");
     if (timerDiv) {
       timerDiv.textContent = `⏱️ Geçen Süre: ${elapsedTime}s`;
 
       // Renk değişimi - süreye göre
-      if (elapsedTime < 40) {
-        timerDiv.style.color = "#00ff00";
-      } else if (elapsedTime < 60) {
-        timerDiv.style.color = "#ffaa00";
+      if (elapsedTime < 15) {
+        timerDiv.style.color = "#ff4444"; // Deprem süresince kırmızı
       } else {
-        timerDiv.style.color = "#ff0000";
+        timerDiv.style.color = "#00ff00"; // Bittiğinde yeşil
       }
     }
   }
 
-  // console.log('fireRate : ', fireRate);
-
-  if (feRoot.length && feRoot[1]) {
-    // FPS view için partikül pozisyonu
-    // feRoot[1] (FE_Origin) dünya pozisyonunu al
-    const worldPosition = new THREE.Vector3();
-    feRoot[1].getWorldPosition(worldPosition);
-    feSpawn.position.copy(worldPosition);
-
-    // Partikül hızını kamera yönüne göre ayarla
-    const cameraDirection = new THREE.Vector3();
-    camera.getWorldDirection(cameraDirection);
-
-    // Yangın pozisyonu - masanın altında
-    const firePosition = new THREE.Vector3(0.4, 0.4, -1.5);
-
-    // Spawn pozisyonundan yangına doğru yön
-    const toFire = new THREE.Vector3()
-      .subVectors(firePosition, feSpawn.position)
-      .normalize();
-
-    // Hız vektörünü yangına doğru ayarla
-    feVelocity.copy(toFire.multiplyScalar(2.0));
-  }
-
-  // modelFE.rotation.y += .01
-
-  // Hands & FE Visibility Update
-  // Hands & FE Visibility Update
+  // Basit el/nefes animasyonları
   if (handsGroup) {
-    // Eğer 'WATER' seçildiyse (Hortum dolabı), el boş kalsın (veya hortum tutsun ama modelFE değil)
-    // Diğer tüplerde eller gizleniyor, tüp modeli geliyor
-    const holdingHandheldExtinguisher = selectedExtinguisher && selectedExtinguisher !== "WATER";
-
-    handsGroup.visible = !holdingHandheldExtinguisher;
-
-    // Basit bir sallanma animasyonu (yürürken)
-    if (!holdingHandheldExtinguisher && (moveState.forward || moveState.backward || moveState.left || moveState.right)) {
       const time = Date.now() * 0.005;
-      handsGroup.position.y = Math.sin(time) * 0.01;
-      handsGroup.position.x = Math.cos(time * 0.5) * 0.005;
-    } else if (!holdingHandheldExtinguisher) {
-      // Dururken yavaş nefes alma hareketi
-      const time = Date.now() * 0.001;
-      handsGroup.position.y = Math.sin(time) * 0.005;
-    }
-  }
-
-  if (modelFE) {
-    // WATER seçiliyse tüp modelini gösterme
-    modelFE.visible = !!selectedExtinguisher && selectedExtinguisher !== "WATER";
+      if (moveState.forward || moveState.backward || moveState.left || moveState.right) {
+        handsGroup.position.y = Math.sin(time) * 0.01;
+        handsGroup.position.x = Math.cos(time * 0.5) * 0.005;
+      } else {
+        handsGroup.position.y = Math.sin(time * 0.2) * 0.005;
+      }
   }
 
   renderer.toneMappingExposure = guiObject.value3;
@@ -2976,7 +2376,7 @@ function sleep(ms) {
 }
 
 async function runRoomTour() {
-  console.log("🎬 Otomatik oda turu başlıyor...");
+  console.log("🎬 Otomatik oda turu başlıyor (Deprem Senaryosu)...");
 
   // Kontrolleri kapalı tut
   if (controls) controls.unlock();
@@ -2986,32 +2386,25 @@ async function runRoomTour() {
 
   const targets = [
     {
-      // 1. Yangın Yeri (Masa/Isıtıcı)
+      // 1. Masa Altı (Güvenli Alan)
       pos: centerPos,
-      look: new THREE.Vector3(0.7, 0.5, -1.5),
-      text: "🔥 Yangın burada, ısıtıcı kaynaklı başlayacak.",
-      wait: 2000,
+      look: new THREE.Vector3(0, 0.5, -1.5),
+      text: "🛡️ Güvenli Alan: Sarsıntı anında masanın altına girerek 'Çök, Kapan, Tutun' pozisyonu almalısınız.",
+      wait: 3000,
     },
     {
-      // 2. Alarm ve Tüpler (Sol Duvar)
+      // 2. Cam / Sabitlenmemiş Eşyalar (Tehlikeli Bölge)
       pos: centerPos,
-      look: new THREE.Vector3(-2.4, 1.2, 1.8),
-      text: "🚨 Alarm Butonu ve Yangın Tüpleri (ABC & CO2) burada.",
-      wait: 2500,
+      look: new THREE.Vector3(-2.4, 1.5, 0),
+      text: "⚠️ Sabitlenmemiş Eşyalar: Deprem anında devrilebilecek ve kırılabilecek ağır eşyalardan uzak durun.",
+      wait: 3000,
     },
     {
-      // 3. Yangın Dolabı (Sağ Duvar)
-      pos: centerPos,
-      look: new THREE.Vector3(2.4, 1.0, 1.5),
-      text: "💧 Yangın Dolabı (Elektrik yangınında KULLANILMAZ!)",
-      wait: 2500,
-    },
-    {
-      // 4. Çıkış Kapısı (Arka)
+      // 3. Acil Çıkış Kapısı
       pos: new THREE.Vector3(0, 1.6, 0), // Biraz daha öne gel ki arkayı rahat dön
       look: new THREE.Vector3(0, 1.5, 3.0), // Kapıya doğru (Z=2.5)
-      text: "🚪 Acil Çıkış Kapısı arkanızda bulunuyor.",
-      wait: 2000,
+      text: "🚪 Tahliye Rotaları: Sarsıntı bittiğinde acil çıkış kapısını kullanarak binayı terk etmelisiniz.",
+      wait: 3000,
     },
   ];
 
@@ -3023,7 +2416,7 @@ async function runRoomTour() {
 
   // Başa dön
   hideTourMessage();
-  showTourMessage("✅ Simülasyon Başlıyor! Hazır olun...", 2000);
+  showTourMessage("✅ Simülasyon Başlıyor! Sarsıntıya hazır olun...", 2000);
 
   // Başlangıç pozisyonuna dön
   await tweenCameraLookAt(initialPos, new THREE.Vector3(0, 1.6, -2.0), 1500);
@@ -3060,7 +2453,7 @@ function startScenario() {
   }
 
   // Yangın durumu penceresinde uyarı göster
-  const statusDiv = document.getElementById("fireStatus");
+  const statusDiv = document.getElementById("earthquakeStatus");
   if (statusDiv) {
     statusDiv.textContent = "🚪 Ofise giriyorsunuz...";
     statusDiv.style.color = "#ffffff";
@@ -3070,13 +2463,13 @@ function startScenario() {
   setTimeout(() => {
     if (statusDiv) {
       statusDiv.textContent =
-        "⚡ YANGIN BAŞLADI! 🔥 Duvardaki ALARM butonuna tıklayın!";
+        "⚡ SARSINTI BAŞLADI! Hemen masanın altına gir!";
       statusDiv.style.color = "#ff4444";
       statusDiv.style.borderColor = "#ff4444";
       statusDiv.style.animation = "pulse 0.5s infinite";
     }
 
-    startFire();
+    startEarthquake();
 
     // Zamanlayıcıyı göster
     const timerDiv = document.getElementById("timer");
@@ -3097,12 +2490,10 @@ function startScenario() {
 }
 
 // Global fonksiyonları export et
-window.fireSimulation = {
+window.earthquakeSimulation = {
   activateAlarm: activateAlarm,
-  startFire: startFire,
-  extinguishFire: extinguishFire,
+  startEarthquake: startEarthquake,
   startScenario: startScenario,
-  toggleFireExtinguisher: toggleFireExtinguisher,
   runRoomTour: runRoomTour,
 };
 
@@ -3134,7 +2525,7 @@ function updateInteraction() {
   let foundInteractable = null;
   let hintText = "";
 
-  // 1. Sahne objelerini kontrol et (Alarm, Tüpler)
+  // 1. Sahne objelerini kontrol et
   if (room) {
     const intersects = raycaster.intersectObjects(room.children, true);
     if (intersects.length > 0) {
@@ -3143,38 +2534,12 @@ function updateInteraction() {
 
       // Mesafe kontrolü
       if (intersects[0].distance < 3.0) { // 3 metre etkileşim mesafesi
-        if (object.name === "alarmBox") {
-          foundInteractable = object;
-          hintText = "🚨 ALARM İÇİN [E]";
-        } else if (["ABC", "CO2", "WATER"].includes(object.name)) {
-          foundInteractable = object;
-          let displayName = object.name;
-          if (displayName === "WATER") displayName = "SU"; // Türkçe çeviri
-          hintText = `🧯 ${displayName} ALMAK İÇİN [E]`;
-        } else if ((object.name === "heater" || object.name === "fireHitbox") && selectedExtinguisher && fireEnable) {
-          // Eğer elimizde tüp varsa ve yangın varsa ve ısıtıcıya bakıyorsak
-          foundInteractable = object;
-          const actionText = guiObject.feBoolean ? "DURDURMAK" : "SÖNDÜRMEK";
-          hintText = `🔥 ${actionText} İÇİN [E]`;
-        } else if (object.name === "Door") {
+        if (object.name === "Door") {
           foundInteractable = object;
           const actionText = window.isDoorOpen ? "KAPATMAK" : "AÇMAK";
           hintText = `🚪 KAPIYI ${actionText} İÇİN [E]`;
         }
       }
-    }
-  }
-
-  // 2. Eğer sahne objesi bulunamadıysa ve elimizde tüp varsa, tüpün kendisine bakıyor muyuz?
-  if (!foundInteractable && modelFE && selectedExtinguisher) {
-    const feIntersects = raycaster.intersectObjects(modelFE.children, true);
-    if (feIntersects.length > 0) {
-      // Tüp elimizdeyken herhangi bir yerine bakınca etkileşim verelim
-      foundInteractable = feIntersects[0].object;
-      foundInteractable.userData = foundInteractable.userData || {};
-      foundInteractable.userData.isFireHandle = true;
-
-      hintText = guiObject.feBoolean ? "KAPATMAK İÇİN [E]" : "SIKMAK İÇİN [E]";
     }
   }
 

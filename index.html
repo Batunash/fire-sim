@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-  <title>3D Yangın Eğitim Simülatörü</title>
+  <title>3D Deprem Eğitim Simülatörü</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
   <link type="text/css" rel="stylesheet" href="/styles/style.css" />
@@ -27,7 +27,7 @@
           display: none;
         "></div>
     <div id="title">
-      <h1>🔥 Yangın Acil Durum Eğitim Simülatörü - 3D</h1>
+      <h1>🌍 Deprem Acil Durum Eğitim Simülatörü - 3D</h1>
     </div>
 
     <div id="instructions" class="collapsed">
@@ -35,38 +35,30 @@
         📋 Senaryo:
         <span id="toggleIcon" style="float: right; font-size: 14px">▼</span>
       </h3>
-      <div id="instructionsContent">
         <p style="font-style: italic; color: #ffaa00">
-          Ofiste masa altındaki ısıtıcı arızalandı ve
-          <strong>elektrik yangını</strong> başladı!
+          Ofiste çalışırken aniden
+          <strong>şiddetli bir sarsıntı</strong> (Deprem) başladı!
         </p>
         <h4>Ne Yapacaksınız?</h4>
         <p>
-          <strong>1.</strong> 🚨 Alarm butonuna HEMEN basın! (Süre önemli!)
+          <strong>1.</strong> 🏃‍♂️ Panik yapmadan güvenli bir alan arayın (ör. masa altı)!
         </p>
-        <p><strong>2.</strong> 🧯 Doğru yangın söndürücüyü seçin:</p>
+        <p><strong>2.</strong> 🧱 Masanın altına girerek <strong>"Çök, Kapan, Tutun"</strong> pozisyonu alın.</p>
         <ul style="margin-left: 20px; font-size: 12px">
           <li>
-            <strong style="color: #ff0000">ABC Toz</strong> - Elektrik için
-            uygun ✓
+            <strong style="color: #ff0000">ÇÖK</strong> - Güvenli gördüğünüz bir yerde diz üstü ÇÖKün.
           </li>
           <li>
-            <strong style="color: #888">CO2</strong> - Elektrik için uygun ✓
+            <strong style="color: #888">KAPAN</strong> - Başınızı ve ensenizi koruyacak şekilde KAPANın.
           </li>
           <li>
-            <strong style="color: #4af">SU</strong> - ELEKTRİK İÇİN TEHLİKELİ!
-            ✗
+            <strong style="color: #4af">TUTUN</strong> - Güvenli bir yere TUTUNun (Masa bacağı vb).
           </li>
         </ul>
         <p>
-          <strong>3.</strong> 🎮 Yangın tüpünün
-          <strong>koluna tıklayarak</strong> aktif edin!
+          <strong>3.</strong> ⏱️ Sarsıntı bitene kadar (yaklaşık 15 saniye) bu alanda kalın!
         </p>
-        <p><strong>4.</strong> 📏 Yangına yaklaşın ve 3 saniye tutun!</p>
-        <p>
-          <strong>5.</strong> ⏰ Yangın 40 saniyede gelişmiş aşamaya geçer!
-        </p>
-        <p><strong>DİKKAT:</strong> Gelişmiş aşamada müdahale çok riskli!</p>
+        <p><strong>DİKKAT:</strong> Deprem anında koşmak ve ayakta durmak çok riskli!</p>
       </div>
     </div>
 
@@ -124,6 +116,13 @@
           <div style="color: #aaa;">Çevreyi İncele</div>
         </div>
 
+        <!-- C KEY - CROUCH -->
+        <div style="text-align: center;">
+          <div style="font-size: 40px; margin-bottom: 10px;">🦺</div>
+          <div style="font-weight: bold; color: #ff6666; font-size: 24px;">[ C ] TUŞU</div>
+          <div style="color: #aaa;">Çök / Kalk</div>
+        </div>
+
         <!-- E KEY -->
         <div style="text-align: center;">
           <div style="font-size: 40px; margin-bottom: 10px;">👉</div>
@@ -133,8 +132,8 @@
       </div>
 
       <div
-        style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px; margin-bottom: 30px; font-style: italic;">
-        <p>💡 İpucu: Nesnelerin üzerine gelince ipuçları görünecektir.</p>
+        style="background: rgba(255,100,100,0.15); padding: 15px; border-radius: 10px; margin-bottom: 30px; border: 1px solid #ff6666;">
+        <p>🛡️ <strong>Hedef:</strong> Deprem başlayınca masanın altına gidin! [C] tuşuyla çömelin, masaya yaklaşın ve sarsıntı bitene kadar bekleyin.</p>
       </div>
 
       <div style="margin-bottom: 30px; display: flex; gap: 15px; justify-content: center;">
@@ -183,7 +182,7 @@
           display: none;
           z-index: 150;
         ">
-      <button onclick="window.fireSimulation.startScenario()" style="
+      <button onclick="window.earthquakeSimulation.startScenario()" style="
             background: linear-gradient(145deg, #4caf50, #45a049);
             color: white;
             border: 4px solid #ffffff;
@@ -197,12 +196,6 @@
             text-transform: uppercase;
           " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
         ▶️ Senaryoyu Başlat
-      </button>
-    </div>
-
-    <div id="alarm-section" style="display: none">
-      <button id="alarmButton" onclick="activateAlarm()">
-        🚨 YANGIN ALARMI BAS
       </button>
     </div>
 
@@ -226,9 +219,9 @@
           box-shadow: 0 0 30px rgba(255, 170, 0, 0.8);
         "></div>
 
-    <div id="fireStatus">Yangın Durumu: Beklemede</div>
+    <div id="earthquakeStatus">Deprem Durumu: Beklemede</div>
 
-    <div id="info">Web Tabanlı 3D Yangın Eğitimi | ISG Simülasyonu</div>
+    <div id="info">Web Tabanlı 3D Deprem Eğitimi | ISG Simülasyonu</div>
   </div>
 
   <!-- Sonuç Ekranı -->
@@ -321,13 +314,11 @@
           ">
         <h4 style="color: #4caf50">📚 Öğrenilenler:</h4>
         <ul style="line-height: 1.8">
-          <li>
-            Elektrik yangınlarında su kullanılmaz (elektrik çarpma riski)
-          </li>
-          <li>ABC veya CO2 söndürücüler elektrik yangınları için uygundur</li>
-          <li>İlk 60 saniye kritiktir - hızlı karar şarttır</li>
-          <li>Yangın gelişmiş aşamaya geçerse odayı terk edin</li>
-          <li>Kapıyı kapatarak oksijen kesilmesini sağlayın</li>
+          <li>Deprem anında panik yapmadan güvenli bir alan (masa altı vb.) bulun.</li>
+          <li>Oturarak çökmek (ÇÖK) savrulmayı önler.</li>
+          <li>Baş ve ensenizi korumak (KAPAN) düşen eşyalardan korur.</li>
+          <li>Sağlam bir eşyaya tutunmak (TUTUN) sarsıntı boyunca sizi güvende tutar.</li>
+          <li>Bina dışına veya merdivenlere deprem anında yönelmek risklidir.</li>
         </ul>
       </div>
     </div>
@@ -348,8 +339,8 @@
     // Global fonksiyon - alarm butonuna erişim için
     window.activateAlarm = function () {
       // main.js'deki fonksiyonu çağır
-      if (window.fireSimulation && window.fireSimulation.activateAlarm) {
-        window.fireSimulation.activateAlarm();
+      if (window.earthquakeSimulation && window.earthquakeSimulation.activateAlarm) {
+        window.earthquakeSimulation.activateAlarm();
       }
     };
 
@@ -389,8 +380,8 @@
       if (controlsIntro) controlsIntro.style.display = "none";
 
       // Oda turunu otomatik başlat
-      if (window.fireSimulation && window.fireSimulation.runRoomTour) {
-        window.fireSimulation.runRoomTour();
+      if (window.earthquakeSimulation && window.earthquakeSimulation.runRoomTour) {
+        window.earthquakeSimulation.runRoomTour();
       } else {
         // Fallback (eğer fonksiyon yoksa eski davranış)
         const startBtn = document.getElementById("startScenarioBtn");
