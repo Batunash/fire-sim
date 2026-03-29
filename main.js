@@ -21,12 +21,12 @@ import GUI from "three/examples/jsm/libs/lil-gui.module.min.js";
 let camera, scene, renderer, composer, controls, model;
 let modelCircle, baseCircle;
 let gui, guiCam;
-let room; // Oda objesi
-let isLocked = false; // Pointer lock durumu
-let currentInteractable = null; // Şu an bakılan etkileşimli obje
-let interactionHintDiv; // E tuşu ipucu elementi
-window.isDoorOpen = false; // Kapı durumu
-window.doorGroup = null; // Kapı objesi referansı
+let room; // Room object
+let isLocked = false; // Pointer lock state
+let currentInteractable = null; // Currently looked at interactable object
+let interactionHintDiv; // E key hint element
+window.isDoorOpen = false; // Door state
+window.doorGroup = null; // Door object reference
 let handsGroup; // Procedural hands group
 
 let mixerFE;
@@ -37,8 +37,7 @@ let deltaTime;
 const EYE_HEIGHT = 1.6;
 const CROUCH_HEIGHT = 0.75; // Masanın altına girebilecek kadar alçak
 
-// ==================== FPS HAREKET KONTROLLERİ (WASD) ====================
-// Klavye ile birinci şahıs (kişi POV) hareketi için değişkenler
+// Variables for first-person POV movement with keyboard
 const moveState = {
   forward: false,
   backward: false,
@@ -64,7 +63,7 @@ function onKeyDown(event) {
     case "KeyD":
       moveState.right = true;
       break;
-    case "KeyC": // Çömelme toggle
+    case "KeyC": // Crouch toggle
       if (event.repeat) return;
       moveState.crouching = !moveState.crouching;
       break;
@@ -77,10 +76,10 @@ function onKeyDown(event) {
   }
 }
 
-// Etkileşim işleyicisi
+// Interaction handler
 function handleInteraction(object) {
   if (object.name === "Door") {
-    // Kapı aç/kapat
+    // Open/close door
     toggleDoor();
   }
 }
@@ -92,14 +91,14 @@ function toggleDoor() {
 
   // Basit rotasyon animasyonu
   if (window.isDoorOpen) {
-    // Aç (İçeri veya dışarı, -90 derece diyelim)
-    // Menteşe solda, içeri açılsın
+    // Open (Inside or outside, let's say -90 degrees)
+    // Hinge on left, opens inward
     window.doorGroup.rotation.y = -Math.PI / 2;
-    showMessage("🚪 Kapı Açıldı", 1000);
+    showMessage("🚪 Door Opened", 1000);
   } else {
     // Kapat
     window.doorGroup.rotation.y = 0;
-    showMessage("🚪 Kapı Kapandı", 1000);
+    showMessage("🚪 Door Closed", 1000);
   }
 }
 
@@ -120,51 +119,51 @@ function onKeyUp(event) {
   }
 }
 
-// Oda içi sınır için yardımcı fonksiyon (GÜNCELLENDİ: Kapı ve Dışarı Çıkış)
+// Helper function for room boundaries (UPDATED: Door and Exit)
 function clampInsideRoom(position) {
-  const roomHalfSize = 2.4; // Yan ve arka duvarlar
-  const wallZ = 2.5; // Ön duvar (Kapı duvarı)
-  const outsideLimitZ = 6.0; // Dışarıda gidilebilecek son nokta
-  const doorHalfWidth = 0.5; // Kapı genişliğinin yarısı (1m kapı)
+  const roomHalfSize = 2.4; // Side and back walls
+  const wallZ = 2.5; // Front wall (Door wall)
+  const outsideLimitZ = 6.0; // Furthest point outside
+  const doorHalfWidth = 0.5; // Half of door width (1m door)
 
-  // X Sınırları (Oda genişliği - Dışarıda da aynı genişlikte koridor varsayalım)
+  // X Boundaries (Room width - assume same width corridor outside)
   if (position.x > roomHalfSize) position.x = roomHalfSize;
   if (position.x < -roomHalfSize) position.x = -roomHalfSize;
 
-  // Z Sınırları (Arka duvar ve Dış sınır)
+  // Z Boundaries (Back wall and outside limit)
   if (position.z < -roomHalfSize) position.z = -roomHalfSize;
   if (position.z > outsideLimitZ) position.z = outsideLimitZ;
 
-  // Ön Duvar Kontrolü (Z = 2.5 civarı)
-  // Eğer duvara yaklaşıyorsa
+  // Front Wall Control (Around Z = 2.5)
+  // If approaching wall
   if (position.z > 2.2 && position.z < 2.8) {
     const inDoorway = Math.abs(position.x) < doorHalfWidth;
 
     if (!inDoorway) {
-      // Kapı hizasında değiliz - Duvar var
-      if (position.z < wallZ) position.z = 2.2; // İçeride kal
-      else position.z = 2.8; // Dışarıda kal
+      // Not at door - Wall exists
+      if (position.z < wallZ) position.z = 2.2; // Stay inside
+      else position.z = 2.8; // Stay outside
     } else {
-      // Kapı hizasındayız
+      // At door
       if (!window.isDoorOpen) {
-        // Kapı kapalı - Geçiş yok
+        // Door closed - No passage
         if (position.z < wallZ) position.z = 2.2;
         else position.z = 2.8;
       }
-      // Kapı açıksa geçebiliriz
+      // If door open can pass
     }
   }
 }
 
 function updateFirstPersonMovement(delta) {
-  // Sadece kilitliyse (senaryo başladığında kilitleniyor) harekete izin ver
+  // Only allow movement if locked (locks when scenario starts)
   if (!controls.isLocked) return;
 
-  // Her frame'de çömelme yüksekliğini güncelle (hareket olmasa da)
+  // Update crouch height every frame (even if no movement)
   const targetHeight = moveState.crouching ? CROUCH_HEIGHT : EYE_HEIGHT;
   camera.position.y += (targetHeight - camera.position.y) * Math.min(delta * 10, 1);
 
-  // Hiçbir hareket tuşuna basılmıyorsa buradan çık
+  // Exit if no movement keys are pressed
   if (
     !moveState.forward &&
     !moveState.backward &&
@@ -177,17 +176,17 @@ function updateFirstPersonMovement(delta) {
   const direction = new THREE.Vector3();
   camera.getWorldDirection(direction);
 
-  // Y eksenini sıfırla ki sadece yatay düzlemde hareket etsin
+  // Reset Y axis so it moves only horizontally
   direction.y = 0;
   direction.normalize();
 
-  // Sağ/sol yön vektörü (strafe) - dünya yukarı ekseni ile çarpım
+  // Strafe vector - cross product with world up
   const strafe = new THREE.Vector3();
   strafe.crossVectors(direction, camera.up).normalize();
 
   const velocity = new THREE.Vector3();
 
-  // Hareket edilmiyorsa sarsıntı driftini önlemek için pozisyonu koru
+  // Protect position from shake drift if not moving
   if (moveState.forward) {
     velocity.add(direction);
   }
@@ -205,23 +204,23 @@ function updateFirstPersonMovement(delta) {
 
   velocity.normalize().multiplyScalar(moveSpeed * delta);
 
-  // Kamera ve hedef (controls.target) birlikte taşınmalı ki FPS hissi bozulmasın
+  // Camera and target must move together for FPS feel
   camera.position.add(velocity);
 
-  // Kamerayı oda içinde tut
+  // Keep camera inside room
   clampInsideRoom(camera.position);
 }
 
-// Ses sistemı
+// Audio system
 let alarmSound;
 
-// Performans ayarları
-const statsEnable = false; // FPS için istatistik panelini kapat
+// Performance settings
+const statsEnable = false; // Turn off stats panel for FPS
 const guiEnable = false;
 const toneMapping = THREE.ACESFilmicToneMapping;
 const antialiasing = false;
 const AmbientOcclusion = false;
-// Masa/bilgisayar bölgesinde kasmayı azaltmak için gölge ve env yansımasını kapat
+// Turn off shadows and env reflections to reduce lag in desk/computer area
 const SHADOWS_ENABLED = false;
 const ENV_REFLECTION_ENABLED = false;
 
@@ -232,7 +231,7 @@ const hdriLoader = new RGBELoader().setPath("/assets/hdri/");
 const fileFE = "FE8.glb";
 const fileBase = "circle.glb";
 
-// ==================== GERÇEKÇİ 3D MODEL YAPILANDIRMASI ====================
+// ==================== REALISTIC 3D MODEL CONFIGURATION ====================
 // Bu modelleri assets/3D/ klasörüne indirin
 // Önerilen kaynaklar: Sketchfab, Poly Pizza, CGTrader (ücretsiz bölüm)
 const REALISTIC_MODELS = {
@@ -348,7 +347,7 @@ function loadModel(modelKey) {
         });
 
         loadedModels[modelKey] = model;
-        console.log(`✓ Model yüklendi: ${modelKey}`);
+        console.log(`✓ Model loaded: ${modelKey}`);
         resolve(model);
       },
       (progress) => {
@@ -356,7 +355,7 @@ function loadModel(modelKey) {
       },
       (error) => {
         console.warn(
-          `⚠ Model yüklenemedi: ${modelKey} - Fallback kullanılacak`
+          `⚠ Model failed to load: ${modelKey} - Fallback will be used`
         );
         resolve(null); // Hata durumunda null döndür, reject yapma
       }
@@ -366,7 +365,7 @@ function loadModel(modelKey) {
 
 // Tüm modelleri yükle
 async function loadAllRealisticModels() {
-  console.log("📦 Gerçekçi modeller yükleniyor...");
+  console.log("📦 Loading realistic models...");
 
   const modelKeys = Object.keys(REALISTIC_MODELS);
   const loadPromises = modelKeys.map((key) => loadModel(key));
@@ -374,7 +373,7 @@ async function loadAllRealisticModels() {
   await Promise.all(loadPromises);
 
   modelsLoaded = true;
-  console.log("✅ Model yükleme tamamlandı!");
+  console.log("✅ Model loading complete!");
 
   return loadedModels;
 }
@@ -815,7 +814,7 @@ async function createRoom() {
     },
     undefined,
     (error) => {
-      console.warn("⚠ exit_box.glb yüklenemedi:", error);
+      console.warn("⚠ exit_box.glb failed to load:", error);
     }
   );
 
@@ -917,7 +916,7 @@ async function createRoom() {
   // -------------------- OFİS MASASI --------------------
   if (loadedModels.desk) {
     room.add(loadedModels.desk);
-    console.log("✓ Gerçekçi masa modeli eklendi");
+    console.log("✓ Realistic desk model added");
   } else {
     // Fallback: Basit geometri masa
     createFallbackDesk();
@@ -933,7 +932,7 @@ async function createRoom() {
       }
     });
     room.add(alarmModel);
-    console.log("✓ Gerçekçi alarm butonu eklendi");
+    console.log("✓ Realistic alarm button added");
   } else {
     // Fallback: Basit alarm butonu
     createFallbackAlarmButton();
@@ -952,7 +951,7 @@ async function createRoom() {
       }
     });
     room.add(heater);
-    console.log("✓ Gerçekçi ısıtıcı eklendi");
+    console.log("✓ Realistic heater added");
   } else {
     // Fallback: Basit çöp kovası (Isıtıcı yerine)
     heater = createFallbackTrashCan();
@@ -969,7 +968,7 @@ async function createRoom() {
     monitor = loadedModels.monitor;
     monitor.name = "monitor";
     room.add(monitor);
-    console.log("✓ Gerçekçi monitör eklendi");
+    console.log("✓ Realistic monitor added");
   } else {
     // Fallback: Basit monitör
     const monitorData = createFallbackMonitor();
@@ -981,7 +980,7 @@ async function createRoom() {
     keyboard = loadedModels.keyboard;
     keyboard.name = "keyboard";
     room.add(keyboard);
-    console.log("✓ Gerçekçi klavye eklendi");
+    console.log("✓ Realistic keyboard added");
   } else if (!loadedModels.monitor) {
     // Fallback zaten oluşturuldu
   }
@@ -989,13 +988,13 @@ async function createRoom() {
   if (loadedModels.mouse) {
     computerMouse = loadedModels.mouse;
     room.add(computerMouse);
-    console.log("✓ Gerçekçi mouse eklendi");
+    console.log("✓ Realistic mouse added");
   }
 
   // -------------------- OFİS SANDALYESİ --------------------
   if (loadedModels.chair) {
     room.add(loadedModels.chair);
-    console.log("✓ Gerçekçi ofis sandalyesi eklendi");
+    console.log("✓ Realistic office chair added");
   } else {
     // Fallback: Basit sandalye
     createFallbackChair();
@@ -1004,18 +1003,18 @@ async function createRoom() {
   // -------------------- MİSAFİR SANDALYELERİ --------------------
   if (loadedModels.guestChair1) {
     room.add(loadedModels.guestChair1);
-    console.log("✓ Misafir sandalyesi 1 eklendi");
+    console.log("✓ Guest chair 1 added");
   }
 
   if (loadedModels.guestChair2) {
     room.add(loadedModels.guestChair2);
-    console.log("✓ Misafir sandalyesi 2 eklendi");
+    console.log("✓ Guest chair 2 added");
   }
 
   // -------------------- BİTKİ --------------------
   if (loadedModels.plant) {
     room.add(loadedModels.plant);
-    console.log("✓ Bitki eklendi");
+    console.log("✓ Plant added");
   }
 
   // Düşecek objelerin başlangıç pozisyonlarını sakla (deprem sırasında kullanılacak)
@@ -1074,7 +1073,7 @@ function createFallbackDesk() {
     room.add(leg);
   });
 
-  console.log("⚠ Fallback masa kullanıldı");
+  console.log("⚠ Fallback desk used");
 }
 
 // Procedural Hands (Three.js Primitives)
@@ -1194,7 +1193,7 @@ function createFallbackAlarmButton() {
   textPlate.position.set(alarmX + 0.02, alarmY + 0.22, alarmZ);
   room.add(textPlate);
 
-  console.log("⚠ Fallback alarm butonu kullanıldı");
+  console.log("⚠ Fallback alarm button used");
 }
 
 function createFallbackTrashCan() {
@@ -1228,7 +1227,7 @@ function createFallbackTrashCan() {
   fireSpawn.position.set(0.4, 0.25, -1.5);
   smokeSpawn.position.set(0.4, 0.5, -1.5);
 
-  console.log("⚠ Fallback çöp kovası kullanıldı");
+  console.log("⚠ Fallback trash can used");
   return trashCan;
 }
 
@@ -1304,7 +1303,7 @@ function createFallbackMonitor() {
   computerMouse.castShadow = true;
   room.add(computerMouse);
 
-  console.log("⚠ Fallback monitör/klavye/mouse kullanıldı");
+  console.log("⚠ Fallback monitor/keyboard/mouse used");
 
   return { monitor, screen, keyboard, mouse: computerMouse };
 }
@@ -1367,7 +1366,7 @@ function createFallbackChair() {
   chairGroup.rotation.y = Math.PI + 0.2;
   room.add(chairGroup);
 
-  console.log("⚠ Fallback sandalye kullanıldı");
+  console.log("⚠ Fallback chair used");
 }
 
 // Yangın Söndürücüler Oluştur - Gerçekçi modeller
@@ -1429,7 +1428,7 @@ function createExtinguishers() {
     window.extinguishers = window.extinguishers || {};
     window.extinguishers.ABC = abcModel;
 
-    console.log("ABC söndürücü yüklendi");
+    console.log("ABC extinguisher loaded");
   });
 
   // CO2 Söndürücü (Siyah) - Gerçekçi model
@@ -1489,7 +1488,7 @@ function createExtinguishers() {
     window.extinguishers = window.extinguishers || {};
     window.extinguishers.CO2 = co2Model;
 
-    console.log("CO2 söndürücü yüklendi");
+    console.log("CO2 extinguisher loaded");
   });
 
   // Yangın Dolabı (Su sistemi) - GLB modeli createRoom() içinde yükleniyor
@@ -1751,7 +1750,7 @@ function createFireHoseCabinet() {
     ctx.font = "bold 64px Arial";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("YANGIN DOLABI", labelCanvas.width / 2, labelCanvas.height / 2);
+    ctx.fillText("FIRE HOSE CABINET", labelCanvas.width / 2, labelCanvas.height / 2);
   }
 
   const labelTexture = new THREE.CanvasTexture(labelCanvas);
@@ -1777,7 +1776,7 @@ function createFireHoseCabinet() {
 
   window.extinguishers = window.extinguishers || {};
   window.extinguishers.WATER = cabinetGroup;
-  console.log("✓ Gerçekçi yangın dolabı kod ile oluşturuldu");
+  console.log("✓ Realistic fire hose cabinet created via code");
 }
 
 // ----------------- Yangın Kontrol Fonksiyonları ------------------------
@@ -1794,7 +1793,7 @@ function startEarthquake() {
   // Ses: Siren başlat
   if (window.alarmAudio) {
     window.alarmAudio.loop = true;
-    window.alarmAudio.play().catch(e => console.warn("Ses çalınamadı:", e));
+    window.alarmAudio.play().catch(e => console.warn("Audio could not be played:", e));
   }
 
   // Elektrik kesintisi - Kaçak akım rölesi devreye giriyor
@@ -1803,10 +1802,10 @@ function startEarthquake() {
   decisionLog.push({
     time: Date.now() - startTime,
     action: "earthquake_started",
-    description: "Sarsıntı başladı!",
+    description: "Shaking started!",
   });
 
-  console.log("⚡ Elektrik kesildi! Deprem başladı!");
+  console.log("⚡ Power cut! Earthquake started!");
   updateStatus();
 }
 
@@ -1839,13 +1838,13 @@ function cutElectricity() {
   });
 
   console.log(
-    "💡 Kaçak akım rölesi devreye girdi! Sadece acil durum ışıkları yanıyor."
+    "💡 Leakage current relay activated! Only emergency lights are on."
   );
 }
 
 function activateAlarm() {
   // Empty or simplified, alarm functionality can be retained or disabled
-  console.log("Alarm basıldı but deprem is automated");
+  console.log("Alarm pressed but earthquake is automated");
 }
 
 let postEarthquakeMode = false;
@@ -1873,13 +1872,13 @@ function updateEarthquakeStage() {
         window.alarmAudio.pause();
       }
 
-      showMessage("✅ Sarsıntı bitti! Hızlıca binayı terk edin! Kapıya (arkaya) yönelin!", 6000);
+      showMessage("✅ Shaking stopped! Evacuate the building quickly! Head for the door (behind you)!", 6000);
       
       // Sarsıntı anındaki performans değerlendirmesi
       if (inSafeZoneTime < 10) {
         // Sarsıntı sırasında yeterince güvende kalmadıysa başarısız kabul edilebilir veya puanı kırılır
         // Biz burada sarsıntı biter bitmez "yaralandın" demiyoruz, ama kaçış süresi tanıyoruz.
-        console.log("Sarsıntı sırasında yeterince güvende kalınmadı.");
+        console.log("Not enough safety maintained during the shaking.");
       }
     }
 
@@ -1931,7 +1930,7 @@ function checkSafeZone() {
   if (dist < safeZoneRadius && isCrouched) {
     if (!isUnderDesk) {
       isUnderDesk = true;
-      showMessage("🛡️ Güvenli alandasınız! Sarsıntı bitene kadar çömeli bekleyin.");
+      showMessage("🛡️ You are in a safe area! stay crouched until the shaking stops.");
     }
     inSafeZoneTime += deltaTime;
   } else if (dist < safeZoneRadius && !isCrouched) {
@@ -1939,11 +1938,11 @@ function checkSafeZone() {
     if (isUnderDesk) {
       isUnderDesk = false;
     }
-    showMessage("⚠️ Masanın altına girmek için [C] tuşuyla çömelin!", 1000);
+    showMessage("⚠️ Crouch with [C] to get under the desk!", 1000);
   } else {
     if (isUnderDesk) {
       isUnderDesk = false;
-      showMessage("⚠️ Güvenli alandan çıktınız!");
+      showMessage("⚠️ You left the safe area!");
     }
   }
 }
@@ -1967,24 +1966,24 @@ function updateStatus() {
   if (!statusDiv) return;
 
   if (!timerStarted) {
-    statusDiv.textContent = "Deprem Durumu: Beklemede";
+    statusDiv.textContent = "Earthquake Status: Pending";
     statusDiv.style.color = "#ffff00";
     statusDiv.style.animation = "none";
     return;
   }
 
   if (!isEarthquakeActive) {
-    statusDiv.textContent = "✅ Sarsıntı Sona Erdi!";
+    statusDiv.textContent = "✅ Shaking Ended!";
     statusDiv.style.color = "#00ff00";
     statusDiv.style.borderColor = "#00ff00";
     statusDiv.style.animation = "none";
   } else if (isUnderDesk) {
-    statusDiv.textContent = "🛡️ Güvenli Alandasın. Bekle...";
+    statusDiv.textContent = "🛡️ You're in the Safe Area. Wait...";
     statusDiv.style.color = "#00ff00";
     statusDiv.style.borderColor = "#00ff00";
     statusDiv.style.animation = "none";
   } else {
-    statusDiv.textContent = "⚠️ SARSINTI! Hemen masanın altına gir!";
+    statusDiv.textContent = "⚠️ SHAKING! Get under the desk immediately!";
     statusDiv.style.color = "#ff4444";
     statusDiv.style.borderColor = "#ff4444";
     statusDiv.style.animation = "pulse 0.5s infinite";
@@ -2031,24 +2030,24 @@ function endScenario(result) {
 
   switch (result) {
     case "success":
-      title = "🎉 Tebrikler, Hayatınızı Kurtardınız!";
+      title = "🎉 Congratulations, You Saved Your Life!";
       text =
-        "Deprem sırasında masanın altına girerek 'Çök, Kapan, Tutun' pozisyonunu başarıyla uyguladınız. Herkes güvende!";
+        "During the earthquake, you successfully applied the 'Drop, Cover, Hold On' position by getting under the desk. Everyone is safe!";
       color = "#00ff00";
       userScore += 50; // Bonus
       break;
 
     case "failed_not_safe":
-      title = "❌ BAŞARISIZ: Güvenli Alanda Değildiniz";
+      title = "❌ FAILED: You Were Not in a Safe Area";
       text =
-        "Sarsıntı sırasında masanın altına girmediniz veya ayakta durdunuz. Yukarıdan düşen eşyalardan dolayı yaralandınız!";
+        "You did not get under the desk or you stood up during the shaking. You were injured by falling objects!";
       color = "#ff0000";
       break;
       
     case "failed_too_late":
-      title = "❌ BAŞARISIZ: Çok Geç Kaldınız";
+      title = "❌ FAILED: You Were Too Late";
       text =
-        "Güvenli alana geçmekte geciktiniz. Sarsıntı sizi hazırlıksız yakaladı.";
+        "You were late to move to the safe area. The shaking caught you unprepared.";
       color = "#ff0000";
       break;
   }
@@ -2056,18 +2055,18 @@ function endScenario(result) {
   resultTitle.textContent = title;
   resultTitle.style.color = color;
   resultText.textContent = text;
-  scoreText.textContent = `Toplam Puan: ${userScore} / 200`;
-  timeText.textContent = `Toplam Süre: ${totalTime} saniye`;
+  scoreText.textContent = `Total Score: ${userScore} / 200`;
+  timeText.textContent = `Total Time: ${totalTime} seconds`;
 
   // Karar geçmişini göster
-  let logHTML = "<h4>Karar Geçmişi:</h4><ul>";
+  let logHTML = "<h4>Decision History:</h4><ul>";
   decisionLog.forEach((log) => {
     logHTML += `<li>[${(log.time / 1000).toFixed(1)}s] ${log.description}</li>`;
   });
   logHTML += "</ul>";
   logText.innerHTML = logHTML;
 
-  console.log("=== SENARYO SONU ===");
+  console.log("=== END OF SCENARIO ===");
   console.log(`Sonuç: ${result}`);
 
   // Kontrolleri serbest bırak
@@ -2078,7 +2077,7 @@ function endScenario(result) {
     try {
       const finalResultText = title + " - " + text;
       exportToCSV(totalTime, userScore, finalResultText);
-      console.log("📊 Rapor indiriliyor...");
+      console.log("📊 Downloading report...");
     } catch (e) {
       console.error("Rapor oluşturma hatası:", e);
     }
@@ -2096,7 +2095,7 @@ window.stopAlarmSound = function () {
   if (alarmAudio) {
     alarmAudio.pause();
     alarmAudio.currentTime = 0;
-    console.log("🔇 Alarm sesi durduruldu");
+    console.log("🔇 Alarm sound stopped");
   }
 };
 
@@ -2104,7 +2103,7 @@ function initAudio() {
   // Siren sesini hazırla
   window.alarmAudio = new Audio('./assets/audio/alarm.mp3');
   window.alarmAudio.volume = 0.5;
-  console.log("✓ Alarm ses sistemi hazır");
+  console.log("✓ Alarm sound system ready");
 }
 
 // ----------------- CSV EXPORT ------------------------
@@ -2130,17 +2129,17 @@ function exportToCSV(totalTime, score, resultText) {
 
   // CSV İçeriği Oluştur
   let csvContent = "\uFEFF"; // UTF-8 BOM (Excel için Türkçe karakter desteği)
-  csvContent += "Yangın Eğitimi Simülasyon Raporu\n";
+  csvContent += "Earthquake Training Simulation Report\n";
   csvContent += "--------------------------------\n";
-  csvContent += `Ad Soyad;${user.name} ${user.surname}\n`;
-  csvContent += `Tarih;${user.startTime}\n`;
-  csvContent += `Toplam Süre;${totalTime} saniye\n`;
-  csvContent += `Puan;${score}\n`;
-  csvContent += `Sonuç;${resultText.replace(/\n/g, " ")}\n\n`;
+  csvContent += `Name Surname;${user.name} ${user.surname}\n`;
+  csvContent += `Date;${user.startTime}\n`;
+  csvContent += `Total Time;${totalTime} seconds\n`;
+  csvContent += `Score;${score}\n`;
+  csvContent += `Result;${resultText.replace(/\n/g, " ")}\n\n`;
 
   csvContent += "--------------------------------\n";
-  csvContent += "DETAYLI HAREKET DÖKÜMÜ\n";
-  csvContent += "Zaman (mm:ss.s);Eylem;Açıklama\n";
+  csvContent += "DETAILED MOVEMENT LOG\n";
+  csvContent += "Time (mm:ss.s);Action;Description\n";
 
   // Logları ekle
   decisionLog.forEach(log => {
@@ -2177,14 +2176,14 @@ function addGUI() {
 
     // guiCam.add( guiObject, 'value1', 1, textureCount, 1 ).name('Texture');
     // guiCam.add( guiObject, 'value2', 0, 1 ).name('Box Brightness');
-    guiCam.add(guiObject, "value3", 0, 10).name("Sahne Parlaklığı");
+    guiCam.add(guiObject, "value3", 0, 10).name("Scene Brightness");
     // guiCam.add( guiObject, 'value4', 0, 1 ).name('Camera Damping');
-    guiCam.addColor(guiObject, "color", 255).name("Zemin Rengi");
-    guiCam.add(guiObject, "fireBoolean").name("🔥 Yangın");
-    guiCam.add(guiObject, "smokeBoolean").name("💨 Duman");
+    guiCam.addColor(guiObject, "color", 255).name("Floor Color");
+    guiCam.add(guiObject, "fireBoolean").name("🔥 Fire");
+    guiCam.add(guiObject, "smokeBoolean").name("💨 Smoke");
     // Yangın söndürücü kontrolü kaldırıldı - artık kola tıklayarak aktif edilecek
     // guiCam.add(guiObject, "feBoolean").name("🧯 Yangın Söndürücü");
-    guiCam.add(guiObject, "pauseBoolean").name("⏸ Duraklat");
+    guiCam.add(guiObject, "pauseBoolean").name("⏸ Pause");
 
     gui.onChange((event) => {
       console.log(event.property);
@@ -2223,23 +2222,23 @@ const stats = () => {
 };
 stats();
 
-// Yangın Hitbox Oluşturucu
+// Fire Hitbox Creator
 function createFireHitbox() {
-  // Ateşin etrafında görünmez ama etkileşime açık büyük bir kutu
+  // A large invisible box around the fire that is open for interaction
   const geometry = new THREE.BoxGeometry(1.5, 2.5, 1.5);
   const material = new THREE.MeshBasicMaterial({
     visible: false,
     wireframe: true
   });
   const hitbox = new THREE.Mesh(geometry, material);
-  // Ateşin konumu: 0.4, 0.25, -1.5
-  // Hitbox'ı biraz yukarı kaldırıyoruz ki tüm ateşi kapsasın
+  // Position of fire: 0.4, 0.25, -1.5
+  // Raising the hitbox slightly to cover the entire fire
   hitbox.position.set(0.7, 1.25, -1.5);
   hitbox.name = "fireHitbox";
 
   if (room) {
     room.add(hitbox);
-    console.log("🔥 Yangın Hitbox oluşturuldu");
+    console.log("🔥 Fire Hitbox created");
   }
 }
 
@@ -2251,11 +2250,11 @@ function animate() {
   controls.update();
   controls.dampingFactor = guiObject.value4;
 
-  // WASD ile birinci şahıs hareket güncellemesi
+  // Update first-person movement with WASD
   updateFirstPersonMovement(deltaTime);
   updateInteraction();
 
-  // Sarsıntı verilerini hazırla (Sadece rendersırasında geçici offset için)
+  // Prepare shake data (Only for temporary offset during render)
   let shakeOffset = new THREE.Vector3(0, 0, 0);
   if (isEarthquakeActive) {
       shakeOffset.x = (Math.random() - 0.5) * shakingIntensity;
@@ -2263,7 +2262,7 @@ function animate() {
       shakeOffset.z = (Math.random() - 0.5) * shakingIntensity;
   }
 
-  // Sarsıntıyı uygula (GEÇİCİ)
+  // Apply shaking (TEMPORARY)
   camera.position.add(shakeOffset);
 
   if (composer) {
@@ -2272,10 +2271,10 @@ function animate() {
     renderer.render(scene, camera);
   }
 
-  // Sarsıntıyı geri al (Kalıcı drifti önlemek için kritik)
+  // Revert shaking (Critical to prevent permanent drift)
   camera.position.sub(shakeOffset);
 
-  // Objelerin Düşmesi (Gerçekçi düşüş fiziği)
+  // Falling Objects (Realistic fall physics)
   if (isEarthquakeActive) {
       const gravity = 9.8;
       fallingObjects.forEach((obj) => {
@@ -2307,7 +2306,7 @@ function animate() {
       const elapsedTime = ((Date.now() - startTime) / 1000).toFixed(1);
       const timerDiv = document.getElementById("timer");
       if (timerDiv) {
-        timerDiv.textContent = `⏱️ Geçen Süre: ${elapsedTime}s`;
+        timerDiv.textContent = `⏱️ Elapsed Time: ${elapsedTime}s`;
         if (elapsedTime < 15) {
           timerDiv.style.color = "#ff4444";
         } else {
@@ -2317,7 +2316,7 @@ function animate() {
     }
   }
 
-  // Basit el/nefes animasyonları
+  // Simple hand/breathing animations
   if (handsGroup) {
       const time = Date.now() * 0.005;
       if (moveState.forward || moveState.backward || moveState.left || moveState.right) {
@@ -2331,7 +2330,7 @@ function animate() {
   renderer.toneMappingExposure = guiObject.value3;
 }
 
-// ==================== ODA TURU ====================
+// ==================== ROOM TOUR ====================
 let tourOverlay;
 
 function showTourMessage(text, duration = 3000) {
@@ -2411,34 +2410,34 @@ function sleep(ms) {
 }
 
 async function runRoomTour() {
-  console.log("🎬 Otomatik oda turu başlıyor (Deprem Senaryosu)...");
+  console.log("🎬 Automatic room tour starting (Earthquake Scenario)...");
 
-  // Kontrolleri kapalı tut
+  // Keep controls off
   if (controls) controls.unlock();
 
-  const initialPos = new THREE.Vector3(0, 1.6, 2.0); // Başlangıç
-  const centerPos = new THREE.Vector3(0, 1.6, 0.5); // Merkeze yakın
+  const initialPos = new THREE.Vector3(0, 1.6, 2.0); // Start
+  const centerPos = new THREE.Vector3(0, 1.6, 0.5); // Near center
 
   const targets = [
     {
-      // 1. Masa Altı (Güvenli Alan)
+      // 1. Under Desk (Safe Area)
       pos: centerPos,
       look: new THREE.Vector3(0, 0.5, -1.5),
-      text: "🛡️ Güvenli Alan: Sarsıntı anında masanın altına girerek 'Çök, Kapan, Tutun' pozisyonu almalısınız.",
+      text: "🛡️ Safe Area: During the shaking, you must get under the desk and take the 'Drop, Cover, Hold On' position.",
       wait: 3000,
     },
     {
-      // 2. Cam / Sabitlenmemiş Eşyalar (Tehlikeli Bölge)
+      // 2. Glass / Unsecured Items (Danger Zone)
       pos: centerPos,
       look: new THREE.Vector3(-2.4, 1.5, 0),
-      text: "⚠️ Sabitlenmemiş Eşyalar: Deprem anında devrilebilecek ve kırılabilecek ağır eşyalardan uzak durun.",
+      text: "⚠️ Unsecured Items: Stay away from heavy items that could tip over or break during an earthquake.",
       wait: 3000,
     },
     {
-      // 3. Acil Çıkış Kapısı
-      pos: new THREE.Vector3(0, 1.6, 0), // Biraz daha öne gel ki arkayı rahat dön
-      look: new THREE.Vector3(0, 1.5, 3.0), // Kapıya doğru (Z=2.5)
-      text: "🚪 Tahliye Rotaları: Sarsıntı bittiğinde acil çıkış kapısını kullanarak binayı terk etmelisiniz.",
+      // 3. Emergency Exit Door
+      pos: new THREE.Vector3(0, 1.6, 0), // Come forward a bit to turn back easily
+      look: new THREE.Vector3(0, 1.5, 3.0), // Towards the door (Z=2.5)
+      text: "🚪 Evacuation Routes: When the shaking stops, you must leave the building using the emergency exit door.",
       wait: 3000,
     },
   ];
@@ -2451,7 +2450,7 @@ async function runRoomTour() {
 
   // Başa dön
   hideTourMessage();
-  showTourMessage("✅ Simülasyon Başlıyor! Sarsıntıya hazır olun...", 2000);
+  showTourMessage("✅ Simulation Starting! Prepare for the shaking...", 2000);
 
   // Başlangıç pozisyonuna dön
   await tweenCameraLookAt(initialPos, new THREE.Vector3(0, 1.6, -2.0), 1500);
@@ -2490,7 +2489,7 @@ function startScenario() {
   // Yangın durumu penceresinde uyarı göster
   const statusDiv = document.getElementById("earthquakeStatus");
   if (statusDiv) {
-    statusDiv.textContent = "🚪 Ofise giriyorsunuz...";
+    statusDiv.textContent = "🚪 Entering the office...";
     statusDiv.style.color = "#ffffff";
     statusDiv.style.borderColor = "#ffffff";
   }
@@ -2498,7 +2497,7 @@ function startScenario() {
   setTimeout(() => {
     if (statusDiv) {
       statusDiv.textContent =
-        "⚡ SARSINTI BAŞLADI! Hemen masanın altına gir!";
+        "⚡ SHAKING STARTED! Get under the desk immediately!";
       statusDiv.style.color = "#ff4444";
       statusDiv.style.borderColor = "#ff4444";
       statusDiv.style.animation = "pulse 0.5s infinite";
@@ -2524,7 +2523,7 @@ function startScenario() {
   }, 2000);
 }
 
-// Global fonksiyonları export et
+// Export global functions
 window.earthquakeSimulation = {
   activateAlarm: activateAlarm,
   startEarthquake: startEarthquake,
@@ -2532,13 +2531,13 @@ window.earthquakeSimulation = {
   runRoomTour: runRoomTour,
 };
 
-// Sayfa yüklendiğinde Kontrol Bilgilendirme Ekranını göster
+// Show Control Info Screen when page loads
 window.addEventListener("load", () => {
   setTimeout(() => {
-    // Kontrolleri serbest bırak (Mouse görünsün)
+    // Release controls (Make mouse visible)
     if (controls) controls.unlock();
 
-    // Önce Kullanım Kılavuzu Ekranını Göster
+    // First Show Use Guide Screen
     const controlsIntro = document.getElementById("controls-intro");
     if (controlsIntro) {
       controlsIntro.style.display = "block";
@@ -2546,7 +2545,7 @@ window.addEventListener("load", () => {
   }, 1000);
 });
 
-// Etkileşim kontrolü (her karede çalışır)
+// Interaction control (runs every frame)
 function updateInteraction() {
   if (!controls.isLocked) {
     if (interactionHintDiv) interactionHintDiv.style.display = 'none';
@@ -2554,39 +2553,39 @@ function updateInteraction() {
   }
 
   const raycaster = new THREE.Raycaster();
-  // Ekranın tam ortasından ray at
+  // Cast ray from center of screen
   raycaster.setFromCamera(new THREE.Vector2(0, 0), camera);
 
   let foundInteractable = null;
   let hintText = "";
 
-  // 1. Sahne objelerini kontrol et
+  // 1. Check scene objects
   if (room) {
     const intersects = raycaster.intersectObjects(room.children, true);
     if (intersects.length > 0) {
-      // En yakın objeyi al
+      // Get nearest object
       const object = intersects[0].object;
 
-      // Mesafe kontrolü
-      if (intersects[0].distance < 3.0) { // 3 metre etkileşim mesafesi
+      // Distance check
+      if (intersects[0].distance < 3.0) { // 3 meter interaction distance
         if (object.name === "Door") {
           foundInteractable = object;
-          const actionText = window.isDoorOpen ? "KAPATMAK" : "AÇMAK";
-          hintText = `🚪 KAPIYI ${actionText} İÇİN [E]`;
+          const actionText = window.isDoorOpen ? "CLOSE" : "OPEN";
+          hintText = `🚪 [E] TO ${actionText} THE DOOR`;
         }
       }
     }
   }
 
-  // Durumu güncelle
+  // Update state
   currentInteractable = foundInteractable;
 
-  // UI Güncelleme
-  // Hint div'i henüz oluşturulmadıysa oluştur
+  // UI Update
+  // Create hint div if not created yet
   if (!interactionHintDiv) {
     interactionHintDiv = document.createElement('div');
     interactionHintDiv.style.position = 'fixed';
-    interactionHintDiv.style.top = '55%'; // Ortadan biraz aşağıda
+    interactionHintDiv.style.top = '55%'; // Slightly below center
     interactionHintDiv.style.left = '50%';
     interactionHintDiv.style.transform = 'translate(-50%, -50%)';
     interactionHintDiv.style.color = '#ffffff';

@@ -2,7 +2,7 @@
 <html lang="en">
 
 <head>
-  <title>3D Deprem Eğitim Simülatörü</title>
+  <title>3D Earthquake Training Simulator</title>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, user-scalable=no, minimum-scale=1.0, maximum-scale=1.0" />
   <link type="text/css" rel="stylesheet" href="/styles/style.css" />
@@ -10,7 +10,7 @@
 
 <body>
   <div id="ui-container">
-    <!-- Crosshair / Nişangah -->
+    <!-- Crosshair -->
     <div id="crosshair" style="
           position: fixed;
           top: 50%;
@@ -27,38 +27,38 @@
           display: none;
         "></div>
     <div id="title">
-      <h1>🌍 Deprem Acil Durum Eğitim Simülatörü - 3D</h1>
+      <h1>🌍 Earthquake Emergency Training Simulator - 3D</h1>
     </div>
 
     <div id="instructions" class="collapsed">
       <h3 id="instructionsToggle" style="cursor: pointer; user-select: none; margin-bottom: 0">
-        📋 Senaryo:
+        📋 Scenario:
         <span id="toggleIcon" style="float: right; font-size: 14px">▼</span>
       </h3>
         <p style="font-style: italic; color: #ffaa00">
-          Ofiste çalışırken aniden
-          <strong>şiddetli bir sarsıntı</strong> (Deprem) başladı!
+          While working in the office, a severe
+          <strong>shaking</strong> (Earthquake) suddenly started!
         </p>
-        <h4>Ne Yapacaksınız?</h4>
+        <h4>What Will You Do?</h4>
         <p>
-          <strong>1.</strong> 🏃‍♂️ Panik yapmadan güvenli bir alan arayın (ör. masa altı)!
+          <strong>1.</strong> 🏃‍♂️ Look for a safe area (e.g., under a desk) without panicking!
         </p>
-        <p><strong>2.</strong> 🧱 Masanın altına girerek <strong>"Çök, Kapan, Tutun"</strong> pozisyonu alın.</p>
+        <p><strong>2.</strong> 🧱 Get under the desk and take the <strong>"Drop, Cover, Hold On"</strong> position.</p>
         <ul style="margin-left: 20px; font-size: 12px">
           <li>
-            <strong style="color: #ff0000">ÇÖK</strong> - Güvenli gördüğünüz bir yerde diz üstü ÇÖKün.
+            <strong style="color: #ff0000">DROP</strong> - Drop down onto your hands and knees.
           </li>
           <li>
-            <strong style="color: #888">KAPAN</strong> - Başınızı ve ensenizi koruyacak şekilde KAPANın.
+            <strong style="color: #888">COVER</strong> - Cover your head and neck.
           </li>
           <li>
-            <strong style="color: #4af">TUTUN</strong> - Güvenli bir yere TUTUNun (Masa bacağı vb).
+            <strong style="color: #4af">HOLD ON</strong> - Hold on to a safe place (Desk leg, etc.).
           </li>
         </ul>
         <p>
-          <strong>3.</strong> ⏱️ Sarsıntı bitene kadar (yaklaşık 15 saniye) bu alanda kalın!
+          <strong>3.</strong> ⏱️ Stay in this area until the shaking stops (about 15 seconds)!
         </p>
-        <p><strong>DİKKAT:</strong> Deprem anında koşmak ve ayakta durmak çok riskli!</p>
+        <p><strong>ATTENTION:</strong> Running or standing during an earthquake is very risky!</p>
       </div>
     </div>
 
@@ -77,10 +77,10 @@
           display: none;
           z-index: 100;
         ">
-      ⏱️ Geçen Süre: 0.0s
+      ⏱️ Elapsed Time: 0.0s
     </div>
 
-    <!-- Kontrol Bilgilendirme Ekranı -->
+    <!-- Control Info Screen -->
     <div id="controls-intro" style="
           position: fixed;
           top: 50%;
@@ -92,52 +92,52 @@
           padding: 40px;
           color: white;
           z-index: 200;
-          display: none; /* JS ile açılacak */
+          display: none; /* Will be opened with JS */
           text-align: center;
           max-width: 600px;
           width: 90%;
           box-shadow: 0 0 50px rgba(0,0,0,0.8);
         ">
-      <h2 style="color: #4caf50; font-size: 32px; margin-bottom: 30px; text-transform: uppercase;">🎮 Simülasyon
-        Kontrolleri</h2>
+      <h2 style="color: #4caf50; font-size: 32px; margin-bottom: 30px; text-transform: uppercase;">🎮 Simulation
+        Controls</h2>
 
       <div style="display: flex; justify-content: space-around; margin-bottom: 40px; flex-wrap: wrap; gap: 20px;">
         <!-- WASD -->
         <div style="text-align: center;">
           <div style="font-size: 40px; margin-bottom: 10px;">⌨️</div>
           <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">W A S D</div>
-          <div style="color: #aaa;">Hareket Et</div>
+          <div style="color: #aaa;">Move Around</div>
         </div>
 
         <!-- MOUSE -->
         <div style="text-align: center;">
           <div style="font-size: 40px; margin-bottom: 10px;">🖱️</div>
           <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">MOUSE</div>
-          <div style="color: #aaa;">Çevreyi İncele</div>
+          <div style="color: #aaa;">Look Around</div>
         </div>
 
         <!-- C KEY - CROUCH -->
         <div style="text-align: center;">
           <div style="font-size: 40px; margin-bottom: 10px;">🦺</div>
-          <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">[ C ] TUŞU</div>
-          <div style="color: #aaa;">Çök / Kalk</div>
+          <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">[ C ] KEY</div>
+          <div style="color: #aaa;">Crouch / Stand</div>
         </div>
 
         <!-- E KEY -->
         <div style="text-align: center;">
           <div style="font-size: 40px; margin-bottom: 10px;">👉</div>
-          <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">[ E ] TUŞU</div>
-          <div style="color: #aaa;">Etkileşim / Seçim</div>
+          <div style="font-weight: bold; color: #ffaa00; font-size: 24px;">[ E ] KEY</div>
+          <div style="color: #aaa;">Interact / Select</div>
         </div>
       </div>
 
       <div
         style="background: rgba(255,100,100,0.15); padding: 15px; border-radius: 10px; margin-bottom: 30px; border: 1px solid #ff6666;">
-        <p>🛡️ <strong>Hedef:</strong> Deprem başlayınca masanın altına gidin! [C] tuşuyla çömelin, masaya yaklaşın ve sarsıntı bitene kadar bekleyin.</p>
+        <p>🛡️ <strong>Goal:</strong> When the earthquake begins, go under the desk! Crouch with [C], approach the desk, and wait until the shaking stops.</p>
       </div>
 
       <div style="margin-bottom: 30px; display: flex; gap: 15px; justify-content: center;">
-        <input type="text" id="userName" placeholder="Adınız" style="
+        <input type="text" id="userName" placeholder="First Name" style="
           padding: 15px;
           border-radius: 10px;
           border: 2px solid #4caf50;
@@ -146,7 +146,7 @@
           font-size: 16px;
           width: 45%;
         ">
-        <input type="text" id="userSurname" placeholder="Soyadınız" style="
+        <input type="text" id="userSurname" placeholder="Last Name" style="
           padding: 15px;
           border-radius: 10px;
           border: 2px solid #4caf50;
@@ -168,11 +168,11 @@
             cursor: pointer;
             transition: all 0.3s;
           " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-        ✅ Kullanımı Anladım
+        ✅ I Understand the Controls
       </button>
     </div>
 
-    <!-- Senaryo Başlat Butonu -->
+    <!-- Start Scenario Button -->
     <div id="startScenarioBtn" style="
           position: fixed;
           top: 45%;
@@ -195,7 +195,7 @@
             transition: all 0.3s ease;
             text-transform: uppercase;
           " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-        ▶️ Senaryoyu Başlat
+        ▶️ Start Scenario
       </button>
     </div>
 
@@ -219,12 +219,12 @@
           box-shadow: 0 0 30px rgba(255, 170, 0, 0.8);
         "></div>
 
-    <div id="earthquakeStatus">Deprem Durumu: Beklemede</div>
+    <div id="earthquakeStatus">Earthquake Status: Pending</div>
 
-    <div id="info">Web Tabanlı 3D Deprem Eğitimi | ISG Simülasyonu</div>
+    <div id="info">Web-Based 3D Earthquake Training | OHS Simulation</div>
   </div>
 
-  <!-- Sonuç Ekranı -->
+  <!-- Result Screen -->
   <div id="resultScreen" style="
         position: fixed;
         top: 0;
@@ -245,7 +245,7 @@
           border: 3px solid #4caf50;
         ">
       <h1 id="resultTitle" style="text-align: center; font-size: 32px; margin-bottom: 20px">
-        Sonuç
+        Results
       </h1>
 
       <p id="resultText" style="
@@ -263,7 +263,7 @@
               border-radius: 10px;
               text-align: center;
             ">
-          <h3 style="color: #ffaa00">Puan</h3>
+          <h3 style="color: #ffaa00">Score</h3>
           <p id="scoreText" style="font-size: 24px; font-weight: bold"></p>
         </div>
 
@@ -273,7 +273,7 @@
               border-radius: 10px;
               text-align: center;
             ">
-          <h3 style="color: #4af">Süre</h3>
+          <h3 style="color: #4af">Time</h3>
           <p id="timeText" style="font-size: 24px; font-weight: bold"></p>
         </div>
       </div>
@@ -300,7 +300,7 @@
               cursor: pointer;
               transition: transform 0.2s;
             " onmouseover="this.style.transform='scale(1.05)'" onmouseout="this.style.transform='scale(1)'">
-          🔄 Tekrar Dene
+          🔄 Try Again
         </button>
       </div>
 
@@ -312,13 +312,13 @@
             border-radius: 5px;
             color: #ddd;
           ">
-        <h4 style="color: #4caf50">📚 Öğrenilenler:</h4>
+        <h4 style="color: #4caf50">📚 Lessons Learned:</h4>
         <ul style="line-height: 1.8">
-          <li>Deprem anında panik yapmadan güvenli bir alan (masa altı vb.) bulun.</li>
-          <li>Oturarak çökmek (ÇÖK) savrulmayı önler.</li>
-          <li>Baş ve ensenizi korumak (KAPAN) düşen eşyalardan korur.</li>
-          <li>Sağlam bir eşyaya tutunmak (TUTUN) sarsıntı boyunca sizi güvende tutar.</li>
-          <li>Bina dışına veya merdivenlere deprem anında yönelmek risklidir.</li>
+          <li>Find a safe area (under a desk, etc.) without panicking during an earthquake.</li>
+          <li>Dropping down (DROP) prevents being thrown around.</li>
+          <li>Protecting your head and neck (COVER) protects from falling objects.</li>
+          <li>Holding onto a sturdy object (HOLD ON) keeps you safe during the shaking.</li>
+          <li>Heading outside or to stairs during an earthquake is risky.</li>
         </ul>
       </div>
     </div>
@@ -336,15 +336,15 @@
   <script type="module" src="/main.js"></script>
 
   <script>
-    // Global fonksiyon - alarm butonuna erişim için
+    // Global function - to access the alarm button
     window.activateAlarm = function () {
-      // main.js'deki fonksiyonu çağır
+      // Call the function in main.js
       if (window.earthquakeSimulation && window.earthquakeSimulation.activateAlarm) {
         window.earthquakeSimulation.activateAlarm();
       }
     };
 
-    // Senaryo penceresi açılır-kapanır özelliği
+    // Scenario window toggle feature
     document.addEventListener("DOMContentLoaded", function () {
       const instructionsDiv = document.getElementById("instructions");
       const toggleButton = document.getElementById("instructionsToggle");
@@ -357,13 +357,13 @@
       }
     });
 
-    // Giriş Kontrolü ve Başlatma
+    // Input Validation and Starting
     window.validateAndStart = function () {
       const name = document.getElementById("userName").value.trim();
       const surname = document.getElementById("userSurname").value.trim();
 
       if (!name || !surname) {
-        alert("Lütfen Ad ve Soyad alanlarını doldurunuz!");
+        alert("Please fill in the First and Last Name fields!");
         return;
       }
 
@@ -374,16 +374,16 @@
         startTime: new Date().toLocaleString()
       };
 
-      // Ekranı Geç ve Oda Turunu Başlat
+      // Pass screen and Start Room Tour
       const controlsIntro = document.getElementById("controls-intro");
 
       if (controlsIntro) controlsIntro.style.display = "none";
 
-      // Oda turunu otomatik başlat
+      // Auto-start room tour
       if (window.earthquakeSimulation && window.earthquakeSimulation.runRoomTour) {
         window.earthquakeSimulation.runRoomTour();
       } else {
-        // Fallback (eğer fonksiyon yoksa eski davranış)
+        // Fallback (old behavior if function doesn't exist)
         const startBtn = document.getElementById("startScenarioBtn");
         if (startBtn) startBtn.style.display = "block";
       }
